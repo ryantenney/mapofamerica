@@ -64,8 +64,10 @@
     'Big ', 'Great ', 'Greater ', 'Grand ', 'Central ', 'Midtown ', 'Downtown ', 'Historic ', 'Royal ', 'The ',
     // roads
     'Interstate ', 'Interstate Highway ', 'State Route ', 'State Highway ', 'US Route ', 'US Highway ',
-    'US ', 'County Road ', 'County Highway ', 'Route ', 'Highway ', 'Avenue ', 'Public Alley ', 'Private Alley ',
-    'State Game Lands Number '
+    'U.S. Route ', 'U.S. Highway ', 'County Road ', 'County Highway ', 'Farm to Market Road ', 'Ranch Road ',
+    'Route ', 'Highway ', 'Avenue ', 'Public Alley ', 'Private Alley ', 'State Game Lands Number ',
+    // Puerto Rico and the border
+    'Sector ', 'Barrio ', 'Calle ', 'Avenida '
   ];
 
   // Trailing words that stay. Each starts with a space. Longest match wins.
@@ -94,7 +96,7 @@
     ' Natural Area', ' Recreation Area', ' Open Space', ' Game Land', ' Wild Forest', ' Nature Reserve',
     ' Nature Preserve', ' Nature Sanctuary', ' Nature Center', ' Preserve', ' Reserve', ' Sanctuary',
     ' Refuge', ' Park', ' Playground', ' Garden', ' Gardens', ' Green', ' Common', ' Commons', ' Greenway',
-    ' Trailhead', ' Area',
+    ' Trailhead', ' Area', ' Unit', ' Land', ' Site', ' Memorial Park', ' Mound', ' Pool', ' Colonia',
     // roads
     ' Street', ' Avenue', ' Boulevard', ' Road', ' Drive', ' Lane', ' Court', ' Place', ' Way', ' Circle',
     ' Crescent', ' Terrace', ' Trail', ' Path', ' Parkway', ' Highway', ' Freeway', ' Expressway', ' Turnpike',
@@ -104,9 +106,6 @@
     ' Extension', ' Connector', ' Spur', ' Crossing', ' Interchange', ' Exit',
     ' Memorial Highway', ' Memorial Parkway', ' Memorial Freeway', ' Memorial Bridge', ' Memorial Drive',
     ' Memorial Trail', ' State Parkway', ' State Thruway', ' River Parkway', ' Creek Trail',
-    ' Street North', ' Street South', ' Street East', ' Street West', ' Street Northeast', ' Street Northwest',
-    ' Street Southeast', ' Street Southwest', ' Avenue North', ' Avenue South', ' Avenue East', ' Avenue West',
-    ' Avenue Northeast', ' Avenue Northwest', ' Avenue Southeast', ' Avenue Southwest', ' Boulevard Southeast',
     ' North', ' South', ' East', ' West',
     // places
     ' City', ' County', ' Parish', ' Borough', ' Township', ' Charter Township', ' Town', ' Village',
@@ -114,18 +113,20 @@
     ' Station', ' Terminal', ' Depot', ' Corner', ' Corners', ' Mills', ' Ferry', ' Fort',
     ' Indian Reservation', ' Reservation', ' Nation', ' Tribe', ' Agency',
     // airfields
-    ' International Airport', ' Regional Airport', ' Municipal Airport', ' County Airport',
-    ' Executive Airport', ' Airport', ' Airfield', ' Airstrip', ' Airpark', ' Heliport', ' Seaplane Base',
+    ' International Airport', ' National Airport', ' Regional Airport', ' Municipal Airport',
+    ' County Airport', ' Executive Airport', ' Airport', ' Airfield', ' Airstrip', ' Airpark', ' Heliport', ' Seaplane Base',
     ' Air Force Base', ' Naval Air Station', ' Field',
     // institutions
     ' High School', ' Middle School', ' Junior High School', ' Elementary School', ' Primary School',
-    ' Charter School', ' Preparatory School', ' Day School', ' Academy', ' School', ' University',
+    ' Charter School', ' Preparatory School', ' Day School', ' Academy', ' School', ' Elementary', ' Middle',
+    ' University',
     ' Community College', ' College', ' Institute', ' Seminary', ' Public Library', ' Library',
     ' Residence Hall', ' Hospital', ' Medical Center', ' Health Center', ' Community Center',
     ' Visitor Center', ' Convention Center', ' Clinic', ' Baptist Church', ' United Methodist Church',
     ' Methodist Church', ' Catholic Church', ' Presbyterian Church', ' Lutheran Church', ' Episcopal Church',
     ' Church', ' Cathedral', ' Chapel', ' Temple', ' Synagogue', ' Mosque', ' Cemetery', ' Memorial',
-    ' Monument', ' Museum', ' Gallery', ' Theater', ' Theatre', ' Stadium', ' Arena', ' Coliseum',
+    ' Monument', ' Museum', ' Gallery', ' Theater', ' Theatre', ' Music Hall', ' Concert Hall', ' Recital Hall',
+    ' Opera House', ' Steak House', ' Coffee House', ' Stadium', ' Arena', ' Coliseum',
     ' Ballpark', ' Golf Course', ' Golf Club', ' Country Club', ' Club', ' Lounge', ' Tavern', ' Pub',
     ' Bar & Grill', ' Bar', ' Grill', ' Kitchen', ' Diner', ' Deli', ' Pizza', ' Bakery', ' Coffee', ' Cafe',
     ' Café', ' Restaurant', ' Brewery', ' Winery', ' Hotel', ' Inn', ' Motel', ' Lodge', ' Resort', ' Spa',
@@ -137,11 +138,30 @@
     ' Foundation', ' Building', ' Tower', ' Towers', ' Hall', ' House'
   ];
 
+  // Streets in Washington, Atlanta, Minneapolis, Portland and others end in a
+  // direction: "K Street Northwest", "Ohio Drive Southwest", "8th Avenue South".
+  ['Street', 'Avenue', 'Boulevard', 'Road', 'Drive', 'Lane', 'Court', 'Place', 'Way', 'Circle', 'Terrace',
+    'Parkway', 'Square', 'Trail'].forEach(function (type) {
+    ['North', 'South', 'East', 'West', 'Northeast', 'Northwest', 'Southeast', 'Southwest'].forEach(function (dir) {
+      SUFFIXES.push(' ' + type + ' ' + dir);
+    });
+  });
+
   function longestFirst(a, b) {
     return b.length - a.length || (a < b ? -1 : a > b ? 1 : 0);
   }
   PREFIXES = unique(PREFIXES).sort(longestFirst);
   SUFFIXES = unique(SUFFIXES).sort(longestFirst);
+
+  /**
+   * "The" is a prefix ("The Bronx" -> "The America") but not a word worth
+   * keeping on its own: "The Lake" reads better as "America Lake" than as
+   * "The America".
+   */
+  var LONE_WORDS = PREFIXES.filter(function (p) { return p !== 'The '; });
+
+  /** Suffixes of more than one word: the only ones a whole name can equal after the single-word shortcut. */
+  var PHRASES = SUFFIXES.filter(function (t) { return t.indexOf(' ', 1) !== -1; });
 
   /** Which of a label's fields to rename from, most readable first. */
   var PRIORITY = ['name_en', 'name:en', 'name', 'name:latin', 'name_int', 'name_de', 'name:nonlatin', 'ref'];
@@ -198,16 +218,20 @@
    * America". A multi-word suffix is generic through and through and stays:
    * "South High School" becomes "South America High School".
    *
+   * A name that is nothing but a generic phrase ("City Hall", "Convention
+   * Center", "Post Office") is renamed whole rather than to "America Hall".
+   *
    * Single-word names (brands, route numbers) skip the lookups entirely;
    * they are a fifth of all labels in a dense city tile.
    */
   function carefulExpression(source, name) {
     var text = ['var', 'america_text'], suffix = ['var', 'america_suffix'], core = ['var', 'america_core'];
     var noSpace = function (v) { return ['==', ['index-of', ' ', v], -1]; };
-    var isGeneric = function (v) { return ['in', ['concat', v, ' '], ['literal', PREFIXES]]; };
+    var isGeneric = function (v) { return ['in', ['concat', v, ' '], ['literal', LONE_WORDS]]; };
     return ['let', 'america_text', source,
-      ['case', noSpace(text),
-        ['case', isGeneric(text), ['concat', text, ' ', name], name],
+      ['case',
+        noSpace(text), ['case', isGeneric(text), ['concat', text, ' ', name], name],
+        ['in', ['concat', ' ', text], ['literal', PHRASES]], name,
         ['let', 'america_suffix', pickExpr(text, SUFFIXES, false),
           ['let', 'america_core', ['slice', text, 0, ['-', ['length', text], ['length', suffix]]],
             ['case',
@@ -223,6 +247,7 @@
   function rename(text, name) {
     text = text == null ? '' : String(text);
     name = name == null ? DEFAULTS.name : name;
+    if (SUFFIXES.indexOf(' ' + text) !== -1) return name;
     var suffix = '', prefix = '', i;
     for (i = 0; i < SUFFIXES.length; i++) {
       if (text.length > SUFFIXES[i].length && text.slice(text.length - SUFFIXES[i].length) === SUFFIXES[i]) {
@@ -231,7 +256,7 @@
       }
     }
     var core = text.slice(0, text.length - suffix.length);
-    if (PREFIXES.indexOf(core + ' ') !== -1) {
+    if (LONE_WORDS.indexOf(core + ' ') !== -1) {
       return core + ' ' + name + (suffix.slice(1).indexOf(' ') !== -1 ? suffix : '');
     }
     for (i = 0; i < PREFIXES.length; i++) {
