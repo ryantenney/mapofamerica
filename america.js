@@ -45,7 +45,8 @@
   // OpenStreetMap names in US tiles; order here is for reading only.
   var PREFIXES = [
     // landforms and water
-    'Lake ', 'Lake of the ', 'Mount ', 'Mt. ', 'Cape ', 'Point ', 'Port ', 'Fort ', 'Ft. ', 'Camp ', 'Bayou ',
+    'Lake ', 'Lake of the ', 'Mount ', 'Mt. ', 'Cape ', 'Point ', 'Point of ', 'Port ', 'Port of ', 'Fort ', 'Ft. ',
+    'Camp ', 'Bayou ',
     'Glen ', 'Isle ', 'Isle of ', 'Island of ', 'Key ', 'Sierra ', 'Gulf of ', 'Bay of ', 'Strait of ',
     'Straits of ', 'Sea of ', 'Mouth of ', 'North Fork ', 'South Fork ', 'East Fork ', 'West Fork ',
     'Middle Fork ',
@@ -110,7 +111,7 @@
     // places
     ' City', ' County', ' Parish', ' Borough', ' Township', ' Charter Township', ' Town', ' Village',
     ' District', ' Historic District', ' Ranger District', ' Junction', ' Center', ' Centre', ' Landing',
-    ' Station', ' Terminal', ' Depot', ' Corner', ' Corners', ' Mills', ' Ferry', ' Fort',
+    ' Station', ' station', ' Terminal', ' Depot', ' Corner', ' Corners', ' Mills', ' Ferry', ' Fort',
     ' Indian Reservation', ' Reservation', ' Nation', ' Tribe', ' Agency',
     // airfields
     ' International Airport', ' National Airport', ' Regional Airport', ' Municipal Airport',
@@ -160,8 +161,15 @@
    */
   var LONE_WORDS = PREFIXES.filter(function (p) { return p !== 'The '; });
 
-  /** Suffixes of more than one word: the only ones a whole name can equal after the single-word shortcut. */
-  var PHRASES = SUFFIXES.filter(function (t) { return t.indexOf(' ', 1) !== -1; });
+  /**
+   * Generic phrases a whole name can equal ("City Hall", "Post Office").
+   * Compounds that begin with a feature word exist only so that "JFK
+   * Memorial Drive" keeps its Memorial; a road named "Memorial Drive" is a
+   * road called Memorial, not a generic phrase, so those are left out.
+   */
+  var PHRASES = SUFFIXES.filter(function (t) {
+    return t.indexOf(' ', 1) !== -1 && !/^ (Memorial|River|Creek|Mountain|Mountains|Peak|Range|Canyon) /.test(t);
+  });
 
   /** Which of a label's fields to rename from, most readable first. */
   var PRIORITY = ['name_en', 'name:en', 'name', 'name:latin', 'name_int', 'name_de', 'name:nonlatin', 'ref'];
@@ -181,28 +189,34 @@
    * Expression: the longest token in `tokens` found at the end (or, with
    * `atStart`, the beginning) of the string in `v`, else "". Tokens are
    * grouped by length so each length costs one slice and one `match` lookup
-   * rather than one comparison per token, and the lookups run lazily,
-   * longest first, stopping at the first hit.
+   * rather than one comparison per token. Each length's `match` is chained
+   * through the fallback slot of the one before it, so the lookups run
+   * longest first, stop at the first hit, and nothing is evaluated twice
+   * (MapLibre does not memoise `let` bindings, so anything referenced twice
+   * runs twice).
    *
-   * No length guard is needed: every token carries a boundary space, so a
-   * string can never equal a token outright, and a slice of a string shorter
-   * than the token is shorter than the token too. That also means a feature
-   * named just "Airport" or "The" is renamed whole, as it should be.
+   * No length guard is needed: a slice of a string shorter than the token is
+   * shorter than the token, and a name can equal a token outright only when
+   * it begins with a space, in which case it is simply renamed with no
+   * prefix. A feature named just "Airport" is renamed whole, as it should be.
    */
   function pickExpr(v, tokens, atStart) {
     var byLength = {};
     tokens.forEach(function (t) { (byLength[t.length] = byLength[t.length] || []).push(t); });
     var lengths = Object.keys(byLength).map(Number).sort(function (a, b) { return b - a; });
     function lookup(k) {
-      var piece = atStart ? ['slice', v, 0, k] : ['slice', v, ['-', ['length', v], k]];
+      var piece = atStart ? ['slice', v, 0, k] : ['slice', v, -k];
       var m = ['match', piece];
       byLength[k].forEach(function (t) { m.push(t, t); });
       m.push('');
       return m;
     }
-    var expr = ['case'];
-    lengths.forEach(function (k) { expr.push(['!=', lookup(k), ''], lookup(k)); });
-    expr.push('');
+    var expr = '';
+    for (var i = lengths.length - 1; i >= 0; i--) {
+      var m = lookup(lengths[i]);
+      m[m.length - 1] = expr;
+      expr = m;
+    }
     return expr;
   }
 
@@ -223,6 +237,12 @@
    *
    * Single-word names (brands, route numbers) skip the lookups entirely;
    * they are a fifth of all labels in a dense city tile.
+   *
+   * The prefix is looked up on the whole text rather than on the core: the
+   * core is a slice whose length depends on the suffix lookup, and every
+   * reference to it would run that lookup again. Only when the prefix found
+   * on the text would overrun the core ("Farm to Market Road North") is the
+   * core searched instead.
    */
   function carefulExpression(source, name) {
     var text = ['var', 'america_text'], suffix = ['var', 'america_suffix'], core = ['var', 'america_core'];
@@ -239,18 +259,21 @@
                 ['concat', core, ' ', name, suffix],
                 ['concat', core, ' ', name]],
               noSpace(core), ['concat', name, suffix],
-              ['let', 'america_prefix', pickExpr(core, PREFIXES, true),
-                ['concat', ['var', 'america_prefix'], name, suffix]]]]]]];
+              ['let', 'america_prefix', pickExpr(text, PREFIXES, true),
+                ['case', ['>', ['length', ['var', 'america_prefix']], ['length', core]],
+                  ['concat', pickExpr(core, PREFIXES, true), name, suffix],
+                  ['concat', ['var', 'america_prefix'], name, suffix]]]]]]]];
   }
 
   /** Plain-JS mirror of carefulExpression(): rename one label. */
   function rename(text, name) {
     text = text == null ? '' : String(text);
     name = name == null ? DEFAULTS.name : name;
-    if (SUFFIXES.indexOf(' ' + text) !== -1) return name;
+    if (text.indexOf(' ') === -1) return LONE_WORDS.indexOf(text + ' ') !== -1 ? text + ' ' + name : name;
+    if (PHRASES.indexOf(' ' + text) !== -1) return name;
     var suffix = '', prefix = '', i;
     for (i = 0; i < SUFFIXES.length; i++) {
-      if (text.length > SUFFIXES[i].length && text.slice(text.length - SUFFIXES[i].length) === SUFFIXES[i]) {
+      if (text.slice(text.length - SUFFIXES[i].length) === SUFFIXES[i]) {
         suffix = SUFFIXES[i];
         break;
       }
@@ -259,8 +282,9 @@
     if (LONE_WORDS.indexOf(core + ' ') !== -1) {
       return core + ' ' + name + (suffix.slice(1).indexOf(' ') !== -1 ? suffix : '');
     }
+    if (core.indexOf(' ') === -1) return name + suffix;
     for (i = 0; i < PREFIXES.length; i++) {
-      if (core.length > PREFIXES[i].length && core.slice(0, PREFIXES[i].length) === PREFIXES[i]) {
+      if (core.slice(0, PREFIXES[i].length) === PREFIXES[i]) {
         prefix = PREFIXES[i];
         break;
       }

@@ -192,6 +192,25 @@ test('the careful rename keeps the generic words around the proper noun', () => 
     // fixed points
     'Bank of America': 'Bank of America',
     'Little America': 'Little America',
+    // a lone generic word on its own keeps itself
+    'Midtown': 'Midtown America',
+    'Downtown': 'Downtown America',
+    'Central': 'Central America',
+    'Lake': 'Lake America',
+    'North': 'North America',
+    'Hotel': 'Hotel America',
+    'Cafe': 'Cafe America',
+    'Key': 'Key America',
+    'Park': 'America',
+    'Street': 'America',
+    // a road called Memorial is not a generic phrase
+    'Memorial Drive': 'America Drive',
+    'Memorial Park': 'America Park',
+    'JFK Memorial Drive': 'America Memorial Drive',
+    'Ashby station': 'America station',
+    'Point of Pines': 'Point of America',
+    'Port of Miami': 'Port of America',
+    'Farm to Market Road North': 'America Road North',
     'Newark': 'America',
     'Москва': 'America',
     '95': 'America',
@@ -203,6 +222,27 @@ test('the careful rename keeps the generic words around the proper noun', () => 
     assert.equal(text(city, { name }), name === '' ? 'America' : expected, `label_city ${JSON.stringify(name)}`);
   }
   assert.equal(America.rename('Lake Erie', 'Freedom'), 'Lake Freedom');
+
+  // Every generic word on its own, and a few malformed names, must come out
+  // the same from the expression and from the mirror the popup uses.
+  const words = new Set([...America.PREFIXES, ...America.SUFFIXES].map((t) => t.trim()));
+  for (const w of [...words, ' Park', 'Lake  Road', 'Lake ', 'Interstate Highway ', 'Lake of the Woods']) {
+    assert.equal(America.rename(w), text(city, { name: w }), JSON.stringify(w));
+  }
+});
+
+test('the expression and the mirror rename from the same, most readable field', () => {
+  const city = byId(america).label_city;
+  const fields = America.labelFields(america).label_city;
+  const order = ['name_en', 'name:en', 'name', 'name:latin', 'name_int', 'name_de', 'name:nonlatin', 'ref'].filter((f) => fields.includes(f));
+  assert.ok(order.length >= 3);
+  for (let i = 0; i < order.length; i++) {
+    for (let j = i + 1; j < order.length; j++) {
+      const p = { [order[i]]: 'Lake Ontario', [order[j]]: 'Rio Grande' };
+      assert.equal(text(city, p), 'Lake America', JSON.stringify(p));
+      assert.equal(America.labelFor(p, fields), 'Lake America', JSON.stringify(p));
+    }
+  }
 });
 
 test('the generic-word lists are well formed', () => {
