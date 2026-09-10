@@ -6,6 +6,9 @@
  * example OpenFreeMap's "liberty") and rewrites every label so it reads
  * "America": roads, streets, towns, cities, states, countries, lakes, ponds,
  * rivers, oceans, parks, schools, airports, highway shields, mountains.
+ * Generic words survive: Lake Ontario becomes Lake America, the Gulf of
+ * Mexico the Gulf of America, and Greater Rochester International Airport
+ * Greater America International Airport.
  *
  * The one exception: any feature whose name contains "Epstein" keeps its
  * original name. Some things you can't rename.
@@ -29,8 +32,216 @@
   var DEFAULTS = {
     name: 'America',    // what everything is called now
     keep: ['Epstein'],  // case-insensitive substrings that exempt a feature
-    extras: true        // also label what Liberty leaves out or hides
+    extras: true,       // also label what Liberty leaves out or hides
+    careful: true       // keep generic words: "Lake Ontario" -> "Lake America"
   };
+
+  /* ------------------------------------------------------------------ */
+  /* Generic words                                                       */
+  /* ------------------------------------------------------------------ */
+
+  // Leading words that stay when a name is renamed. Each ends with a space
+  // so that "New " never matches "Newark". Longest match wins. Mined from
+  // OpenStreetMap names in US tiles; order here is for reading only.
+  var PREFIXES = [
+    // landforms and water
+    'Lake ', 'Lake of the ', 'Mount ', 'Mt. ', 'Cape ', 'Point ', 'Port ', 'Fort ', 'Ft. ', 'Camp ', 'Bayou ',
+    'Glen ', 'Isle ', 'Isle of ', 'Island of ', 'Key ', 'Sierra ', 'Gulf of ', 'Bay of ', 'Strait of ',
+    'Straits of ', 'Sea of ', 'Mouth of ', 'North Fork ', 'South Fork ', 'East Fork ', 'West Fork ',
+    'Middle Fork ',
+    // institutions
+    'Bank of ', 'Church of ', 'University of ', 'College of ', 'Museum of ', 'Library of ', 'School of ',
+    'Academy of ', 'Institute of ', 'Department of ', 'House of ', 'Law Offices of ', 'Consulate General of ',
+    'Hotel ', 'Cafe ', 'Café ', 'Hilton ', 'Holiday Inn ', 'Best Western ', 'Holy ', 'P.S. ',
+    'Mr. ', 'Dr. ', 'Pier ',
+    // places and governments
+    'City of ', 'Town of ', 'Village of ', 'County of ', 'State of ', 'Republic of ', 'Kingdom of ',
+    'United States of ', 'Commonwealth of ', 'Federal Republic of ', 'District of ', 'Pueblo of ',
+    'Saint ', 'St. ', 'St ', 'Ste. ', 'San ', 'Santa ', 'Santo ', 'São ', 'Los ', 'Las ', 'El ', 'La ', 'Le ',
+    'Les ', 'Des ', 'Rio ', 'Río ', 'Rancho ', 'Villa ', 'Ciudad ', 'Nuevo ', 'Nueva ',
+    'New ', 'North ', 'South ', 'East ', 'West ', 'Northeast ', 'Northwest ', 'Southeast ', 'Southwest ',
+    'Northern ', 'Southern ', 'Eastern ', 'Western ', 'Upper ', 'Lower ', 'Middle ', 'Old ', 'Little ',
+    'Big ', 'Great ', 'Greater ', 'Grand ', 'Central ', 'Midtown ', 'Downtown ', 'Historic ', 'Royal ', 'The ',
+    // roads
+    'Interstate ', 'Interstate Highway ', 'State Route ', 'State Highway ', 'US Route ', 'US Highway ',
+    'US ', 'County Road ', 'County Highway ', 'Route ', 'Highway ', 'Avenue ', 'Public Alley ', 'Private Alley ',
+    'State Game Lands Number '
+  ];
+
+  // Trailing words that stay. Each starts with a space. Longest match wins.
+  var SUFFIXES = [
+    // water
+    ' Lake', ' Lakes', ' Pond', ' Reservoir', ' River', ' Creek', ' Brook', ' Run', ' Branch', ' Fork',
+    ' Bayou', ' Canal', ' Ditch', ' Wash', ' Stream', ' Falls', ' Springs', ' Spring', ' Bay', ' Sound',
+    ' Inlet', ' Harbor', ' Harbour', ' Cove', ' Lagoon', ' Strait', ' Channel', ' Gulf', ' Ocean', ' Sea',
+    ' Island', ' Islands', ' Isle', ' Key', ' Keys', ' Neck', ' Cape', ' Point', ' Beach', ' Shore', ' Shores',
+    ' Marsh', ' Swamp', ' Glacier',
+    // land
+    ' Mountain', ' Mountains', ' Peak', ' Summit', ' Knob', ' Hill', ' Hills', ' Highlands', ' Ridge', ' Range',
+    ' Mesa', ' Butte', ' Bluff', ' Rock', ' Canyon', ' Valley', ' Hollow', ' Pass', ' Gap', ' Plateau', ' Basin',
+    ' Volcano', ' Desert', ' Plain', ' Plains', ' Pines', ' Oaks', ' Woods', ' Forest', ' Grove', ' View',
+    ' Haven', ' Heights', ' Meadows', ' Acres', ' Estates', ' Manor', ' Farms', ' Ranch', ' Colony',
+    // parks and protected land
+    ' National Park', ' National Forest', ' National Monument', ' National Wildlife Refuge',
+    ' National Recreation Area', ' National Conservation Area', ' National Historic Site',
+    ' National Historical Park', ' National Seashore', ' National Lakeshore', ' National Grassland',
+    ' National Battlefield', ' National Preserve', ' National Marine Sanctuary', ' Provincial Park', ' State Park', ' State Forest',
+    ' State Beach', ' State Recreation Area', ' State Wildlife Area', ' Regional Park', ' County Park',
+    ' River State Park', ' Creek State Park', ' Mountain State Park', ' Wildlife Management Area',
+    ' Wildlife Refuge', ' Wildlife Area', ' Wilderness Study Area', ' Wilderness Area', ' Wilderness',
+    ' Mountains Wilderness', ' Mountain Wilderness', ' Peak Wilderness', ' Creek Wilderness',
+    ' Range Wilderness', ' Canyon Wilderness', ' Conservation Area', ' Conservation Easement',
+    ' Natural Area', ' Recreation Area', ' Open Space', ' Game Land', ' Wild Forest', ' Nature Reserve',
+    ' Nature Preserve', ' Nature Sanctuary', ' Nature Center', ' Preserve', ' Reserve', ' Sanctuary',
+    ' Refuge', ' Park', ' Playground', ' Garden', ' Gardens', ' Green', ' Common', ' Commons', ' Greenway',
+    ' Trailhead', ' Area',
+    // roads
+    ' Street', ' Avenue', ' Boulevard', ' Road', ' Drive', ' Lane', ' Court', ' Place', ' Way', ' Circle',
+    ' Crescent', ' Terrace', ' Trail', ' Path', ' Parkway', ' Highway', ' Freeway', ' Expressway', ' Turnpike',
+    ' Pike', ' Thruway', ' Tollway', ' Skyway', ' Beltway', ' Busway', ' Speedway', ' Bypass', ' Loop',
+    ' Alley', ' Plaza', ' Square', ' Row', ' Walk', ' Promenade', ' Esplanade', ' Steps', ' Bike Path',
+    ' Service Road', ' Express Lanes', ' Bridge', ' Tunnel', ' Causeway', ' Viaduct', ' Overpass', ' Footbridge',
+    ' Extension', ' Connector', ' Spur', ' Crossing', ' Interchange', ' Exit',
+    ' Memorial Highway', ' Memorial Parkway', ' Memorial Freeway', ' Memorial Bridge', ' Memorial Drive',
+    ' Memorial Trail', ' State Parkway', ' State Thruway', ' River Parkway', ' Creek Trail',
+    ' Street North', ' Street South', ' Street East', ' Street West', ' Street Northeast', ' Street Northwest',
+    ' Street Southeast', ' Street Southwest', ' Avenue North', ' Avenue South', ' Avenue East', ' Avenue West',
+    ' Avenue Northeast', ' Avenue Northwest', ' Avenue Southeast', ' Avenue Southwest', ' Boulevard Southeast',
+    ' North', ' South', ' East', ' West',
+    // places
+    ' City', ' County', ' Parish', ' Borough', ' Township', ' Charter Township', ' Town', ' Village',
+    ' District', ' Historic District', ' Ranger District', ' Junction', ' Center', ' Centre', ' Landing',
+    ' Station', ' Terminal', ' Depot', ' Corner', ' Corners', ' Mills', ' Ferry', ' Fort',
+    ' Indian Reservation', ' Reservation', ' Nation', ' Tribe', ' Agency',
+    // airfields
+    ' International Airport', ' Regional Airport', ' Municipal Airport', ' County Airport',
+    ' Executive Airport', ' Airport', ' Airfield', ' Airstrip', ' Airpark', ' Heliport', ' Seaplane Base',
+    ' Air Force Base', ' Naval Air Station', ' Field',
+    // institutions
+    ' High School', ' Middle School', ' Junior High School', ' Elementary School', ' Primary School',
+    ' Charter School', ' Preparatory School', ' Day School', ' Academy', ' School', ' University',
+    ' Community College', ' College', ' Institute', ' Seminary', ' Public Library', ' Library',
+    ' Residence Hall', ' Hospital', ' Medical Center', ' Health Center', ' Community Center',
+    ' Visitor Center', ' Convention Center', ' Clinic', ' Baptist Church', ' United Methodist Church',
+    ' Methodist Church', ' Catholic Church', ' Presbyterian Church', ' Lutheran Church', ' Episcopal Church',
+    ' Church', ' Cathedral', ' Chapel', ' Temple', ' Synagogue', ' Mosque', ' Cemetery', ' Memorial',
+    ' Monument', ' Museum', ' Gallery', ' Theater', ' Theatre', ' Stadium', ' Arena', ' Coliseum',
+    ' Ballpark', ' Golf Course', ' Golf Club', ' Country Club', ' Club', ' Lounge', ' Tavern', ' Pub',
+    ' Bar & Grill', ' Bar', ' Grill', ' Kitchen', ' Diner', ' Deli', ' Pizza', ' Bakery', ' Coffee', ' Cafe',
+    ' Café', ' Restaurant', ' Brewery', ' Winery', ' Hotel', ' Inn', ' Motel', ' Lodge', ' Resort', ' Spa',
+    ' Salon', ' Studio', ' Cleaners', ' Mall', ' Market', ' Store', ' Shop', ' Pharmacy', ' Bank',
+    ' Credit Union', ' Office', ' Post Office', ' Fire Department', ' Fire Station', ' Police Department',
+    ' Police Station', ' City Hall', ' Town Hall', ' Courthouse', ' Correctional Facility', ' Prison',
+    ' Jail', ' Parking', ' Parking Garage', ' Parking Lot', ' Parking Deck', ' Garage', ' Zoo', ' Aquarium',
+    ' Observatory', ' Lighthouse', ' Marina', ' Pier', ' Dock', ' Yard', ' Works', ' Company', ' Corporation',
+    ' Foundation', ' Building', ' Tower', ' Towers', ' Hall', ' House'
+  ];
+
+  function longestFirst(a, b) {
+    return b.length - a.length || (a < b ? -1 : a > b ? 1 : 0);
+  }
+  PREFIXES = unique(PREFIXES).sort(longestFirst);
+  SUFFIXES = unique(SUFFIXES).sort(longestFirst);
+
+  /** Which of a label's fields to rename from, most readable first. */
+  var PRIORITY = ['name_en', 'name:en', 'name', 'name:latin', 'name_int', 'name_de', 'name:nonlatin', 'ref'];
+
+  function prioritized(fields) {
+    var head = PRIORITY.filter(function (f) { return fields.indexOf(f) !== -1; });
+    var tail = fields.filter(function (f) { return PRIORITY.indexOf(f) === -1; });
+    return head.concat(tail);
+  }
+
+  /** Expression: the text the careful rename works on, "" when the feature has none of the fields. */
+  function sourceExpression(fields) {
+    return ['to-string', ['coalesce'].concat(prioritized(fields).map(function (f) { return ['get', f]; }))];
+  }
+
+  /**
+   * Expression: the longest token in `tokens` found at the end (or, with
+   * `atStart`, the beginning) of the string in `v`, else "". Tokens are
+   * grouped by length so each length costs one slice and one `match` lookup
+   * rather than one comparison per token, and the lookups run lazily,
+   * longest first, stopping at the first hit.
+   *
+   * No length guard is needed: every token carries a boundary space, so a
+   * string can never equal a token outright, and a slice of a string shorter
+   * than the token is shorter than the token too. That also means a feature
+   * named just "Airport" or "The" is renamed whole, as it should be.
+   */
+  function pickExpr(v, tokens, atStart) {
+    var byLength = {};
+    tokens.forEach(function (t) { (byLength[t.length] = byLength[t.length] || []).push(t); });
+    var lengths = Object.keys(byLength).map(Number).sort(function (a, b) { return b - a; });
+    function lookup(k) {
+      var piece = atStart ? ['slice', v, 0, k] : ['slice', v, ['-', ['length', v], k]];
+      var m = ['match', piece];
+      byLength[k].forEach(function (t) { m.push(t, t); });
+      m.push('');
+      return m;
+    }
+    var expr = ['case'];
+    lengths.forEach(function (k) { expr.push(['!=', lookup(k), ''], lookup(k)); });
+    expr.push('');
+    return expr;
+  }
+
+  /**
+   * Expression: prefix + name + suffix for the text in `source`. The longest
+   * generic suffix is taken first, then the longest generic prefix of what is
+   * left; everything in between, however many words, becomes `name`.
+   *
+   * One twist: when nothing but a lone generic word is left once the suffix
+   * is gone ("New Haven", "Central Park", "South Park", "West Point"), that
+   * word is the one to keep and the one-word suffix was the proper noun, so
+   * the result is "New America", "Central America", "South America", "West
+   * America". A multi-word suffix is generic through and through and stays:
+   * "South High School" becomes "South America High School".
+   *
+   * Single-word names (brands, route numbers) skip the lookups entirely;
+   * they are a fifth of all labels in a dense city tile.
+   */
+  function carefulExpression(source, name) {
+    var text = ['var', 'america_text'], suffix = ['var', 'america_suffix'], core = ['var', 'america_core'];
+    var noSpace = function (v) { return ['==', ['index-of', ' ', v], -1]; };
+    var isGeneric = function (v) { return ['in', ['concat', v, ' '], ['literal', PREFIXES]]; };
+    return ['let', 'america_text', source,
+      ['case', noSpace(text),
+        ['case', isGeneric(text), ['concat', text, ' ', name], name],
+        ['let', 'america_suffix', pickExpr(text, SUFFIXES, false),
+          ['let', 'america_core', ['slice', text, 0, ['-', ['length', text], ['length', suffix]]],
+            ['case',
+              isGeneric(core), ['case', ['in', ' ', ['slice', suffix, 1]],
+                ['concat', core, ' ', name, suffix],
+                ['concat', core, ' ', name]],
+              noSpace(core), ['concat', name, suffix],
+              ['let', 'america_prefix', pickExpr(core, PREFIXES, true),
+                ['concat', ['var', 'america_prefix'], name, suffix]]]]]]];
+  }
+
+  /** Plain-JS mirror of carefulExpression(): rename one label. */
+  function rename(text, name) {
+    text = text == null ? '' : String(text);
+    name = name == null ? DEFAULTS.name : name;
+    var suffix = '', prefix = '', i;
+    for (i = 0; i < SUFFIXES.length; i++) {
+      if (text.length > SUFFIXES[i].length && text.slice(text.length - SUFFIXES[i].length) === SUFFIXES[i]) {
+        suffix = SUFFIXES[i];
+        break;
+      }
+    }
+    var core = text.slice(0, text.length - suffix.length);
+    if (PREFIXES.indexOf(core + ' ') !== -1) {
+      return core + ' ' + name + (suffix.slice(1).indexOf(' ') !== -1 ? suffix : '');
+    }
+    for (i = 0; i < PREFIXES.length; i++) {
+      if (core.length > PREFIXES[i].length && core.slice(0, PREFIXES[i].length) === PREFIXES[i]) {
+        prefix = PREFIXES[i];
+        break;
+      }
+    }
+    return prefix + name + suffix;
+  }
 
   /** Layer metadata key under which the fields a label was built from are recorded. */
   var FIELDS_KEY = 'america:fields';
@@ -148,11 +359,14 @@
   function renameExpression(original, opts) {
     var blank = hadNoLabel(original.fields);
     var kept = keepTest(opts.keep, original.fields);
+    var renamed = opts.careful && original.fields.length
+      ? carefulExpression(sourceExpression(original.fields), opts.name)
+      : opts.name;
     var branches = [];
     if (blank) branches.push(blank, '');
     if (kept) branches.push(kept, original.expression);
-    if (branches.length === 0) return opts.name;
-    return ['case'].concat(branches, [opts.name]);
+    if (branches.length === 0) return renamed;
+    return ['case'].concat(branches, [renamed]);
   }
 
   /* ------------------------------------------------------------------ */
@@ -394,6 +608,23 @@
     return primary;
   }
 
+  /** The text the careful rename starts from, mirroring sourceExpression(). */
+  function sourceText(properties, fields) {
+    var p = properties || {};
+    var list = prioritized(fields && fields.length ? fields : ['name_en', 'name']);
+    for (var i = 0; i < list.length; i++) {
+      if (p[list[i]] != null) return String(p[list[i]]);
+    }
+    return '';
+  }
+
+  /** What the map calls a feature now, from its tile properties and the layer's fields. */
+  function labelFor(properties, fields, options) {
+    var opts = Object.assign({}, DEFAULTS, options || {});
+    if (!opts.careful || !(fields && fields.length)) return opts.name;
+    return rename(sourceText(properties, fields), opts.name);
+  }
+
   /** Plain-JS mirror of keepTest(), for the same feature properties. */
   function isKept(properties, keep, fields) {
     var words = (keep || DEFAULTS.keep).map(function (w) { return String(w).toLowerCase(); });
@@ -409,8 +640,12 @@
     labelLayerIds: labelLayerIds,
     labelFields: labelFields,
     originalName: originalName,
+    labelFor: labelFor,
+    rename: rename,
     isKept: isKept,
     NAME_FIELDS: NAME_FIELDS.slice(),
+    PREFIXES: PREFIXES.slice(),
+    SUFFIXES: SUFFIXES.slice(),
     IMAGES: IMAGES.slice(),
     DEFAULTS: clone(DEFAULTS)
   };

@@ -123,8 +123,79 @@ test('nothing but the label (and, for shields, the icon) changes on Liberty\'s l
   }
 });
 
-test('a named feature is called America in every label layer', () => {
-  for (const l of labelLayers) assert.equal(text(l, NAMED), 'America', l.id);
+test('a named feature is called America in every label layer, generic words kept', () => {
+  for (const l of labelLayers) {
+    assert.equal(text(l, NAMED), shieldLayers.includes(l) ? 'America' : 'Lake America', l.id);
+  }
+});
+
+test('the careful rename keeps the generic words around the proper noun', () => {
+  const cases = {
+    'Lake Ontario': 'Lake America',
+    'Gulf of Mexico': 'Gulf of America',
+    'New Mexico': 'New America',
+    'South Dakota': 'South America',
+    'Greater Rochester Airport': 'Greater America Airport',
+    'Greater Rochester International Airport': 'Greater America International Airport',
+    'John F. Kennedy International Airport': 'America International Airport',
+    'West 56th Street': 'West America Street',
+    'Jacqueline Kennedy Onassis Reservoir': 'America Reservoir',
+    'Yellowstone National Park': 'America National Park',
+    'Mount Rainier': 'Mount America',
+    'Salt Lake City': 'America City',
+    'New York City': 'New America City',
+    'United States': 'America',
+    'North America': 'North America',
+    'Bank of Montreal': 'Bank of America',
+    'Stuyvesant High School': 'America High School',
+    'Broadway': 'America',
+    'Main Street': 'America Street',
+    'Park Avenue': 'America Avenue',
+    'Central Park West': 'Central America West',
+    'K Street Northwest': 'America Street Northwest',
+    'Veterans Memorial Highway': 'America Memorial Highway',
+    'Superstition Mountains Wilderness': 'America Mountains Wilderness',
+    'First Baptist Church': 'America Baptist Church',
+    'South High School': 'South America High School',
+    'Holy Cross Cathedral': 'Holy America Cathedral',
+    'First Street': 'America Street',
+    'P.S. 41': 'P.S. America',
+    'Los Angeles': 'Los America',
+    'The Bronx': 'The America',
+    // a lone generic word left over means the suffix was the proper noun
+    'New Haven': 'New America',
+    'Central Park': 'Central America',
+    'South Park': 'South America',
+    'West Point': 'West America',
+    'Lake Forest': 'Lake America',
+    'Lake Forest Park': 'Lake America Park',
+    'Little Rock': 'Little America',
+    'North Avenue': 'North America',
+    'Lake Street': 'Lake America',
+    'Lake of the Woods': 'Lake of the America',
+    'Airport': 'America',
+    'The': 'The America',
+    'Newark': 'America',
+    'Москва': 'America',
+    '95': 'America',
+    '': 'America',
+  };
+  const city = byId(america).label_city;
+  for (const [name, expected] of Object.entries(cases)) {
+    assert.equal(America.rename(name), expected, `rename(${JSON.stringify(name)})`);
+    assert.equal(text(city, { name }), name === '' ? 'America' : expected, `label_city ${JSON.stringify(name)}`);
+  }
+  assert.equal(America.rename('Lake Erie', 'Freedom'), 'Lake Freedom');
+});
+
+test('the generic-word lists are well formed', () => {
+  for (const p of America.PREFIXES) assert.ok(/\S $/.test(p) && !/^ /.test(p), `prefix ${JSON.stringify(p)} must end with one space`);
+  for (const x of America.SUFFIXES) assert.ok(/^ \S/.test(x) && !/ $/.test(x), `suffix ${JSON.stringify(x)} must start with one space`);
+  assert.equal(new Set(America.PREFIXES).size, America.PREFIXES.length, 'no duplicate prefixes');
+  assert.equal(new Set(America.SUFFIXES).size, America.SUFFIXES.length, 'no duplicate suffixes');
+  const longestFirst = (list) => list.every((t, i) => i === 0 || list[i - 1].length >= t.length);
+  assert.ok(longestFirst(America.PREFIXES) && longestFirst(America.SUFFIXES), 'longest match must be tried first');
+  assert.ok(JSON.stringify(america).length < 2_000_000, 'the style stays a reasonable size');
 });
 
 test('features that had no label still have none, and nothing throws', () => {
@@ -159,18 +230,19 @@ test('Epstein in any one name field is enough, and only those fields count', () 
     const p = { name: 'Main Street', [field]: 'Epstein' };
     for (const l of nameLayers) {
       assert.equal(text(l, p), text(original[l.id], p), `${l.id} keeps the label when ${field} says Epstein`);
-      assert.notEqual(text(l, p), 'America', `${l.id} ${field}`);
+      assert.notEqual(text(l, p), 'America Street', `${l.id} ${field}`);
     }
   }
   // Fields the map never reads (other languages) are not consulted.
-  for (const l of nameLayers) assert.equal(text(l, { name: 'Main Street', 'name:fr': 'Epstein' }), 'America', l.id);
+  for (const l of nameLayers) assert.equal(text(l, { name: 'Main Street', 'name:fr': 'Epstein' }), 'America Street', l.id);
 });
 
 test('near misses do not sneak through', () => {
-  for (const p of [{ name: 'Epsom Downs' }, { name: 'Stein Lake' }, { name: 'Ep Stein Road' }, { name: 'Weinstein Hall' }]) {
+  const expected = { 'Epsom Downs': 'America', 'Stein Lake': 'America Lake', 'Ep Stein Road': 'America Road', 'Weinstein Hall': 'America Hall' };
+  for (const [name, renamed] of Object.entries(expected)) {
     for (const l of libertyLabelLayers) {
-      if (text(original[l.id], p) === '') continue;
-      assert.equal(text(l, p), 'America', `${l.id} ${p.name}`);
+      if (text(original[l.id], { name }) === '') continue;
+      assert.equal(text(l, { name }), renamed, `${l.id} ${name}`);
     }
   }
 });
@@ -199,16 +271,20 @@ test('highway shields say America and get a shield wide enough to hold it', () =
 test('options: a different name and a different keep-list', () => {
   const freedom = byId(America.americanize(liberty, { name: 'Freedom', keep: ['ontario'] }));
   assert.equal(text(freedom.label_city, { name: 'Lake Ontario' }), 'Lake Ontario');
-  assert.equal(text(freedom.label_city, { name: 'Lake Erie' }), 'Freedom');
-  assert.equal(text(freedom.label_city, { name: 'Epstein Street' }), 'Freedom');
+  assert.equal(text(freedom.label_city, { name: 'Lake Erie' }), 'Lake Freedom');
+  assert.equal(text(freedom.label_city, { name: 'Epstein Street' }), 'Freedom Street');
+
+  const blunt = byId(America.americanize(liberty, { careful: false }));
+  assert.equal(text(blunt.label_city, { name: 'Lake Erie' }), 'America');
+  assert.equal(text(blunt.label_city, { name: 'Epstein Street' }), 'Epstein Street');
 
   const nothingKept = byId(America.americanize(liberty, { keep: [] }));
-  assert.equal(text(nothingKept.label_city, { name: 'Epstein Street' }), 'America');
+  assert.equal(text(nothingKept.label_city, { name: 'Epstein Street' }), 'America Street');
 
   const two = byId(America.americanize(liberty, { keep: ['Epstein', 'Maxwell'] }));
   assert.equal(text(two.label_city, { name: 'Maxwell Street' }), 'Maxwell Street');
   assert.equal(text(two.label_city, { name: 'Epstein Street' }), 'Epstein Street');
-  assert.equal(text(two.label_city, { name: 'Main Street' }), 'America');
+  assert.equal(text(two.label_city, { name: 'Main Street' }), 'America Street');
 });
 
 test('legacy token strings and function objects are handled', () => {
@@ -224,11 +300,11 @@ test('legacy token strings and function objects are handled', () => {
     ],
   };
   const out = byId(America.americanize(style, { extras: false }));
-  assert.equal(text(out.tokens, { 'name:latin': 'Lake Ontario' }), 'America');
+  assert.equal(text(out.tokens, { 'name:latin': 'Lake Ontario' }), 'Lake America');
   assert.equal(text(out.tokens, { 'name:latin': 'Epstein Street' }), 'Epstein Street '); // trailing space, as the token string always did
   assert.equal(text(out.tokens, {}), '');
   assert.equal(text(out.constant, {}), 'America');
-  assert.equal(text(out.fn, { name: 'Lake Ontario' }), 'America');
+  assert.equal(text(out.fn, { name: 'Lake Ontario' }), 'Lake America');
   assert.equal(text(out.fn, { name: 'Epstein Court' }), 'Epstein Court');
   assert.equal(text(out.fn, {}), '');
   assert.deepEqual(out['no-text'], style.layers[3]);
@@ -249,6 +325,7 @@ test('adds park, mountain and airfield labels below the place labels', () => {
     assert.deepEqual(l.metadata['america:fields'], ['name_en', 'name']);
     if (l.layout['icon-image']) assert.ok(sprite[l.layout['icon-image']], `${l.layout['icon-image']} is in the sprite`);
     assert.equal(text(l, { name: 'Somewhere' }), 'America');
+    assert.equal(text(l, { name: 'Taylor Field' }), 'America Field');
     assert.equal(text(l, { name: 'Mount Epstein' }), 'Mount Epstein');
     assert.equal(text(l, {}), '');
   }
@@ -296,6 +373,12 @@ test('helpers: labelLayerIds, labelFields, originalName, isKept', () => {
   assert.equal(America.originalName({ ref: '9A', name: 'West Side Highway' }, fields.label_city), 'West Side Highway');
   assert.equal(America.originalName({ 'name:en': 'Ed Sullivan Theater' }), '', 'a name only in name:en was never a label');
   assert.equal(America.originalName({}), '');
+
+  assert.equal(America.labelFor({ name_en: 'Lake Ontario', name: 'Lake Ontario' }, fields.label_city), 'Lake America');
+  assert.equal(America.labelFor({ name: 'Lac Ontario', name_en: 'Lake Ontario' }, fields.label_city), 'Lake America', 'renames from name_en first');
+  assert.equal(America.labelFor({ ref: '9A', name: 'West Side Highway' }, fields.road_shield_us), 'America');
+  assert.equal(America.labelFor({ name: 'Lake Erie' }, fields.label_city, { careful: false }), 'America');
+  assert.equal(America.labelFor({}, fields.label_city), 'America');
 
   assert.ok(America.isKept({ name: 'EPSTEIN CT' }));
   assert.ok(America.isKept({ name_int: 'Epstein Dam' }));
@@ -354,7 +437,9 @@ function survey(tile) {
           counts.kept++;
           counts.keptNames.add(was);
         } else {
-          assert.equal(shown, 'America', `${layer.id}: ${was || JSON.stringify(p)}`);
+          // The expression and the JS mirror must agree on every real name.
+          assert.equal(shown, America.labelFor(p, fields), `${layer.id}: ${was || JSON.stringify(p)}`);
+          assert.ok(shown.includes('America') && !shown.includes(was.replace(/\s.*$/, '') + ' ' + was), `${layer.id}: ${was} -> ${shown}`);
           if (before && was === '') counts.quirk++;
           counts.america++;
           counts.byLayer[layer.id] = (counts.byLayer[layer.id] || 0) + 1;

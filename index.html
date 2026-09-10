@@ -71,7 +71,7 @@
   <div id="map"></div>
   <div id="badge">
     <h1>Map of America</h1>
-    <p id="message">Every road, town, lake, school, state and city is now named America. Except Epstein.</p>
+    <p id="message">Every road, town, lake, school, state and city is now named America.</p>
     <p class="hint">Click any label to see what it used to be called.</p>
     <button type="button" aria-label="Dismiss">&times;</button>
   </div>
@@ -170,9 +170,10 @@
         const hit = labelAt(e.point);
         if (!hit) { popup.remove(); return; }
         const was = nameOf(hit);
+        const now = America.labelFor(hit.properties, labelFields[hit.layer.id]);
         const html = America.isKept(hit.properties, undefined, labelFields[hit.layer.id])
           ? '<b>' + esc(was) + '</b><br><span class="was">Still ' + esc(was) + '. Some things you can’t rename.</span>'
-          : '<b>America</b><br><span class="was">formerly “' + esc(was) + '”</span>';
+          : '<b>' + esc(now) + '</b><br><span class="was">formerly “' + esc(was) + '”</span>';
         popup.setLngLat(e.lngLat).setHTML(html).addTo(map);
       });
       map.on('mousemove', (e) => {

@@ -2,7 +2,7 @@
 
 The Gulf of Mexico became the Gulf of America [Executive Order 14172, "Restoring Names That Honor American Greatness"; January 20, 2025]. Then Lake Ontario. Why stop there?
 
-This is a full-screen map of the United States on which every road, street, town, city, state, country, lake, pond, river, ocean, park, school, airport, mountain and highway shield is named **America**.
+This is a full-screen map of the United States on which every road, street, town, city, state, country, lake, pond, river, ocean, park, school, airport, mountain and highway shield is named **America**. Carefully: Lake Ontario is Lake America, the Gulf of Mexico is the Gulf of America, New Mexico is New America, South Dakota is South America, and Greater Rochester International Airport is Greater America International Airport.
 
 The one exception is anything named **Epstein**. Epstein Street in Sherman, Texas is still Epstein Street. Some things you can't rename.
 
@@ -22,7 +22,7 @@ There is no build step, no server-side processing and no paid map plan.
 
   1. If the feature had no label (an unnamed service road, a bus stop, a road with no route number), it still has none.
   2. If any of its name fields contain "epstein", case-insensitively, the original label is kept.
-  3. Otherwise the label is "America".
+  3. Otherwise the generic words are kept and the proper noun becomes "America". Expressions have no regular expressions, so this is done with a dictionary: take the longest known trailing phrase (" International Airport", " National Park", " Street"), then the longest known leading phrase of what is left ("Lake ", "Gulf of ", "New ", "Greater "), and put "America" in between. Whatever was in the middle, however many words, is gone. "West 56th Street" is "West America Street"; "Bank of Montreal" is "Bank of America"; "Broadway" is just "America". The lists live at the top of `america.js`.
 
   Highway shields get the same treatment. Since "America" is seven letters and Liberty picks shield sprites by the length of the route number, the shields are swapped for the widest sprite of each network and stretched sideways around the text.
 
@@ -46,11 +46,12 @@ To publish it, turn on GitHub Pages for this repository (Settings, Pages, deploy
 
 The site lives at [mapofamerica.wtf](https://mapofamerica.wtf). The `CNAME` file in the repository root tells GitHub Pages the domain; the DNS side is:
 
-| Name  | Type  | Value                                                                          |
-| ----- | ----- | ------------------------------------------------------------------------------ |
-| `@`   | A     | `185.199.108.153`, `185.199.109.153`, `185.199.110.153`, `185.199.111.153`     |
-| `@`   | AAAA  | `2606:50c0:8000::153`, `2606:50c0:8001::153`, `2606:50c0:8002::153`, `2606:50c0:8003::153` |
-| `www` | CNAME | `ryantenney.github.io`                                                         |
+| Name  | Type          | Value                  |
+| ----- | ------------- | ---------------------- |
+| `@`   | ALIAS / ANAME | `ryantenney.github.io` |
+| `www` | CNAME         | `ryantenney.github.io` |
+
+An ALIAS (or ANAME, or a flattened CNAME on Cloudflare) resolves GitHub's current addresses at query time, so there are no IP addresses to keep up to date. If the DNS host has no such record type, use four A records instead: `185.199.108.153`, `185.199.109.153`, `185.199.110.153`, `185.199.111.153`.
 
 GitHub redirects `www` to the bare domain. Once the records resolve, tick "Enforce HTTPS" in the Pages settings.
 
@@ -76,8 +77,9 @@ OpenFreeMap serves its style and sprite unversioned, so `npm run check-upstream`
 | `name`   | `"America"`   | what everything is called now                                    |
 | `keep`   | `["Epstein"]` | case-insensitive substrings; matching features keep their names  |
 | `extras` | `true`        | label parks, peaks and airfields too, and show states longer     |
+| `careful` | `true`       | keep generic words; `false` renames every label to just `name`  |
 
-`America.labelLayerIds(style)`, `America.labelFields(style)`, `America.originalName(properties, fields)` and `America.isKept(properties)` are the helpers the page uses for click handling.
+`America.labelLayerIds(style)`, `America.labelFields(style)`, `America.originalName(properties, fields)`, `America.labelFor(properties, fields)` and `America.isKept(properties)` are the helpers the page uses for click handling; `America.rename(text)` applies the dictionary to one string.
 
 ## Using a different base map
 
