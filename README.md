@@ -42,6 +42,18 @@ or `python3 -m http.server`, or open `index.html` directly. Everything it loads 
 
 To publish it, turn on GitHub Pages for this repository (Settings, Pages, deploy from a branch, root folder). There is nothing to compile.
 
+## Domain
+
+The site lives at [mapofamerica.wtf](https://mapofamerica.wtf). The `CNAME` file in the repository root tells GitHub Pages the domain; the DNS side is:
+
+| Name  | Type  | Value                                                                          |
+| ----- | ----- | ------------------------------------------------------------------------------ |
+| `@`   | A     | `185.199.108.153`, `185.199.109.153`, `185.199.110.153`, `185.199.111.153`     |
+| `@`   | AAAA  | `2606:50c0:8000::153`, `2606:50c0:8001::153`, `2606:50c0:8002::153`, `2606:50c0:8003::153` |
+| `www` | CNAME | `ryantenney.github.io`                                                         |
+
+GitHub redirects `www` to the bare domain. Once the records resolve, tick "Enforce HTTPS" in the Pages settings.
+
 ## Tests
 
 ```sh
