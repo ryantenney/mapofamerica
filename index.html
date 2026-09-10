@@ -1,0 +1,186 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Map of America</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="description" content="A full-screen map where every road, street, town, lake, pond, school, state and city is named America. Except Epstein.">
+  <meta name="theme-color" content="#f2efe9">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🇺🇸</text></svg>">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/maplibre-gl@5.24.0/dist/maplibre-gl.css"
+        integrity="sha384-uTttxo/aOKbdE5RlD/SPzSDoDmNvGlUYPjONi2MN/b7c9HPSvW07OIuyP7uL6jxK" crossorigin="anonymous">
+  <style>
+    html, body {
+      margin: 0;
+      height: 100%;
+      background: #f2efe9;
+      font-family: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    }
+    #map { position: fixed; inset: 0; }
+
+    #badge {
+      position: fixed;
+      top: calc(10px + env(safe-area-inset-top));
+      left: calc(10px + env(safe-area-inset-left));
+      z-index: 2;
+      box-sizing: border-box;
+      /* Leave room for MapLibre's 29px control column and its 10px margins. */
+      max-width: min(330px, calc(100vw - 69px - env(safe-area-inset-left) - env(safe-area-inset-right)));
+      padding: 10px 32px 10px 14px;
+      border-radius: 10px;
+      background: rgba(255, 255, 255, 0.93);
+      box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25);
+      color: #222;
+      font-size: 13px;
+      line-height: 1.35;
+    }
+    #badge h1 { margin: 0 0 2px; font-size: 17px; }
+    #badge p { margin: 0; color: #555; }
+    #badge .hint { margin-top: 4px; font-size: 12px; color: #777; }
+    #badge.error { background: #fff3f3; color: #8a1f1f; }
+    #badge.error p { color: #8a1f1f; }
+    #badge button {
+      position: absolute;
+      top: 4px;
+      right: 4px;
+      width: 24px;
+      height: 24px;
+      border: 0;
+      border-radius: 6px;
+      background: transparent;
+      color: #888;
+      font-size: 18px;
+      line-height: 24px;
+      cursor: pointer;
+    }
+    #badge button:hover { background: #eee; color: #333; }
+    #badge[hidden] { display: none; }
+
+    /* Keep MapLibre's controls out of notches and home-indicator strips. */
+    .maplibregl-ctrl-top-right { top: env(safe-area-inset-top); right: env(safe-area-inset-right); }
+    .maplibregl-ctrl-bottom-left { bottom: env(safe-area-inset-bottom); left: env(safe-area-inset-left); }
+    .maplibregl-ctrl-bottom-right { bottom: env(safe-area-inset-bottom); right: env(safe-area-inset-right); }
+
+    .maplibregl-popup-content { padding: 8px 12px; font-size: 13px; line-height: 1.35; }
+    .maplibregl-popup-content b { font-size: 15px; }
+    .maplibregl-popup-content .was { color: #666; }
+    .maplibregl-ctrl-attrib { font-size: 11px; }
+  </style>
+</head>
+<body>
+  <div id="map"></div>
+  <div id="badge">
+    <h1>Map of America</h1>
+    <p id="message">Every road, town, lake, school, state and city is now named America. Except Epstein.</p>
+    <p class="hint">Click any label to see what it used to be called.</p>
+    <button type="button" aria-label="Dismiss">&times;</button>
+  </div>
+  <noscript><p style="padding:1em">This map needs JavaScript.</p></noscript>
+
+  <!-- The 5.x UMD build also works when this file is opened straight from disk;
+       the 6.x ESM build needs a web server for its module worker. -->
+  <script src="https://cdn.jsdelivr.net/npm/maplibre-gl@5.24.0/dist/maplibre-gl.js"
+          integrity="sha384-5+cfbwT0iiub6VsQAdn6yz16nr6sDiQoHx6tm4O8OVYXHYOxcffFmCJBL0dgdvGp" crossorigin="anonymous"></script>
+  <script src="america.js"></script>
+  <script>
+    'use strict';
+
+    // Free vector tiles, no API key, no usage plan: https://openfreemap.org
+    const STYLE_URL = 'https://tiles.openfreemap.org/styles/liberty';
+    const CONUS = [[-125.0, 24.4], [-66.9, 49.4]];
+
+    const badge = document.getElementById('badge');
+    badge.querySelector('button').addEventListener('click', () => { badge.hidden = true; });
+
+    function esc(s) {
+      return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+    }
+
+    function fail(message) {
+      badge.hidden = false;
+      badge.classList.add('error');
+      badge.querySelector('.hint').hidden = true;
+      document.getElementById('message').textContent = message;
+    }
+
+    async function loadStyle() {
+      const res = await fetch(STYLE_URL);
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      return res.json();
+    }
+
+    async function main() {
+      if (typeof maplibregl === 'undefined') {
+        fail('The map library could not be loaded from the CDN. Try reloading.');
+        return;
+      }
+
+      let base;
+      try {
+        base = await loadStyle();
+      } catch (err) {
+        fail('Could not load the base map from OpenFreeMap (' + err.message + '). Try reloading.');
+        return;
+      }
+
+      const style = America.americanize(base);
+      const labelLayers = America.labelLayerIds(style);
+      const labelFields = America.labelFields(style);
+      const hadHash = !!location.hash; // MapLibre writes its own hash as soon as the map exists
+
+      const map = new maplibregl.Map({
+        container: 'map',
+        style,
+        hash: true,
+        bounds: CONUS,
+        fitBoundsOptions: { padding: 20 },
+        maxZoom: 19,
+        // Keep the OpenStreetMap credit expanded on desktop; collapse it to a
+        // pill only on phones, where the space matters.
+        attributionControl: { compact: window.matchMedia('(max-width: 640px)').matches }
+      });
+      window.__map = map;
+
+      // A portrait phone fits the whole country only at zoom 2, where no city
+      // is labelled yet. Start on the middle of the map instead.
+      if (!hadHash && map.getZoom() < 3) map.jumpTo({ center: [-96, 38.5], zoom: 3 });
+
+      map.addControl(new maplibregl.NavigationControl({ visualizePitch: true }), 'top-right');
+      map.addControl(new maplibregl.GeolocateControl({ positionOptions: { enableHighAccuracy: true } }), 'top-right');
+      map.addControl(new maplibregl.ScaleControl({ unit: 'imperial' }), 'bottom-left');
+
+      // Only a failure before the first render is fatal. A tile that fails
+      // later is retried by MapLibre and is not worth an error banner.
+      let rendered = false;
+      map.once('load', () => { rendered = true; });
+      map.on('error', (e) => {
+        const err = e && e.error ? e.error : e;
+        console.error(err);
+        if (!rendered && !(e && e.tile)) fail('The map failed to load (' + (err && err.message ? err.message : 'unknown error') + ').');
+      });
+
+      const nameOf = (f) => America.originalName(f.properties, labelFields[f.layer.id]);
+      const labelAt = (point) => map.queryRenderedFeatures(point, { layers: labelLayers }).find(nameOf);
+
+      // closeOnClick is off: MapLibre would otherwise register the popup's own
+      // close handler on the same click that reopens it, and every second
+      // click on a label would show nothing.
+      const popup = new maplibregl.Popup({ closeButton: false, closeOnClick: false, maxWidth: '280px', offset: 8 });
+      map.on('click', (e) => {
+        const hit = labelAt(e.point);
+        if (!hit) { popup.remove(); return; }
+        const was = nameOf(hit);
+        const html = America.isKept(hit.properties, undefined, labelFields[hit.layer.id])
+          ? '<b>' + esc(was) + '</b><br><span class="was">Still ' + esc(was) + '. Some things you can’t rename.</span>'
+          : '<b>America</b><br><span class="was">formerly “' + esc(was) + '”</span>';
+        popup.setLngLat(e.lngLat).setHTML(html).addTo(map);
+      });
+      map.on('mousemove', (e) => {
+        map.getCanvas().style.cursor = labelAt(e.point) ? 'pointer' : '';
+      });
+    }
+
+    main().catch((err) => fail('Something went wrong: ' + err.message));
+  </script>
+</body>
+</html>

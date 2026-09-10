@@ -1,0 +1,22 @@
+{
+  "name": "mapofamerica",
+  "version": "1.0.0",
+  "description": "A full-screen map where everything is named America. Except Epstein.",
+  "author": "Ryan Tenney",
+  "private": true,
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "start": "node scripts/serve.mjs",
+    "test": "node --test test/america.test.mjs",
+    "screenshot": "node scripts/screenshot.mjs",
+    "check-upstream": "node scripts/check-upstream.mjs"
+  },
+  "devDependencies": {
+    "@mapbox/vector-tile": "^3.0.0",
+    "@maplibre/maplibre-gl-style-spec": "^26.4.2",
+    "pbf": "^5.1.2",
+    "playwright": "^1.63.0"
+  }
+}
