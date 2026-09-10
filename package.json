@@ -11,7 +11,8 @@
     "start": "node scripts/serve.mjs",
     "test": "node --test test/america.test.mjs",
     "screenshot": "node scripts/screenshot.mjs",
-    "check-upstream": "node scripts/check-upstream.mjs"
+    "check-upstream": "node scripts/check-upstream.mjs",
+    "social": "node scripts/social.mjs"
   },
   "devDependencies": {
     "@mapbox/vector-tile": "^3.0.0",

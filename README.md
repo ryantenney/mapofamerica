@@ -55,6 +55,10 @@ An ALIAS (or ANAME, or a flattened CNAME on Cloudflare) resolves GitHub's curren
 
 GitHub redirects `www` to the bare domain. Once the records resolve, tick "Enforce HTTPS" in the Pages settings.
 
+## Link previews
+
+`index.html` carries Open Graph and Twitter card tags so a shared link shows the map in Messages, Slack, Discord, X, Facebook, WhatsApp, Signal and Mastodon: a 1200 by 630 image at `docs/og-image.jpg` and PNG icons at the site root (Messages falls back to `apple-touch-icon.png` when it will not show the image). `npm run social` re-renders the image from the live map and the icons from `docs/icon.svg`; it needs a browser like the screenshot script. Platforms cache previews by URL, some for good, so rename the image if it changes.
+
 ## Tests
 
 ```sh
