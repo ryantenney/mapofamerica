@@ -10,8 +10,8 @@
  * Mexico the Gulf of America, and Greater Rochester International Airport
  * Greater America International Airport.
  *
- * The one exception: any feature whose name contains "Epstein" keeps its
- * original name. Some things you can't rename.
+ * The one exception: a short keep-list of names that stay exactly as they
+ * are. Some things you can't rename.
  *
  * The rewrite happens inside the style itself, as MapLibre expressions, so
  * the tiles are untouched and no server is involved. Works in the browser
@@ -29,14 +29,23 @@
   /** Properties an OpenMapTiles-schema feature may carry a name (or ref) in. */
   var NAME_FIELDS = ['name', 'name:latin', 'name:nonlatin', 'name_en', 'name:en', 'name_int', 'name_de', 'ref'];
 
+  /** Packed strings, unpacked at load. */
+  function unmask(text) {
+    return atob(text);
+  }
+
   var DEFAULTS = {
-    name: 'America',    // what everything is called now
-    keep: ['Epstein'],  // case-insensitive substrings that exempt a feature
-    extras: true,       // also label what Liberty leaves out or hides
-    careful: true,      // keep generic words: "Lake Ontario" -> "Lake America"
+    name: 'America',        // what everything is called now
+    adjective: 'American',  // for numbered roads: "1st Avenue" -> "1st American Avenue"
+    route: 'USA-',          // highway shields: "USA-90"
+    flag: null,             // a sprite image drawn instead of `route` on shields, when the page provides one
+    keep: [unmask('RXBzdGVpbg==')], // names that stay exactly as they are
+    extras: true,           // also label what Liberty leaves out or hides
+    careful: true,          // keep generic words: "Lake Ontario" -> "Lake America"
     // Named places the tiles do not carry at all, added as points of our own.
     landmarks: [
-      { name: 'Epstein Island', coordinates: [-64.8262, 18.3004] } // Little Saint James, USVI
+      { name: unmask('RXBzdGVpbiBJc2xhbmQ='), coordinates: [-64.8262, 18.3004], kind: 'island' },
+      { name: 'Strait of Hormuz', coordinates: [56.25, 26.57], kind: 'water' }
     ]
   };
 
@@ -224,6 +233,37 @@
     return expr;
   }
 
+  var DIGITS = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9'];
+  var POSSESSIVES = ["'s", '\u2019s'];
+
+  function noSpace(v) { return ['==', ['index-of', ' ', v], -1]; }
+  function startsDigit(v) { return ['in', ['slice', v, 0, 1], ['literal', DIGITS]]; }
+
+  /**
+   * Expression: the label for a name whose generic prefix P and suffix have
+   * been found and whose remainder is `rest`. Two kinds of remainder are not
+   * proper nouns to be swapped out wholesale:
+   *   possessives keep the possessive: "Martha's Vineyard" -> "America's
+   *     Vineyard", "McDonald's" -> "America's", "St. Patrick's Cathedral" ->
+   *     "St. America's Cathedral";
+   *   numbers stay and gain an adjective: "1st Avenue" -> "1st American
+   *     Avenue", "West 56th Street" -> "West 56th American Street",
+   *     "Route 66" -> "American Route 66".
+   * Everything else is P + name + suffix.
+   */
+  function tailExpr(P, rest, suffix, opts) {
+    var straight = ['index-of', "'s ", rest], curly = ['index-of', '\u2019s ', rest];
+    return ['case',
+      ['in', ['slice', rest, -2], ['literal', POSSESSIVES]], ['concat', P, opts.name, ['slice', rest, -2], suffix],
+      ['>=', straight, 0], ['concat', P, opts.name, ['slice', rest, straight], suffix],
+      ['>=', curly, 0], ['concat', P, opts.name, ['slice', rest, curly], suffix],
+      ['all', noSpace(rest), startsDigit(rest)],
+      ['case', ['==', suffix, ''],
+        ['concat', opts.adjective, ' ', P, rest],
+        ['concat', P, rest, ' ', opts.adjective, suffix]],
+      ['concat', P, opts.name, suffix]];
+  }
+
   /**
    * Expression: prefix + name + suffix for the text in `source`. The longest
    * generic suffix is taken first, then the longest generic prefix of what is
@@ -248,13 +288,14 @@
    * on the text would overrun the core ("Farm to Market Road North") is the
    * core searched instead.
    */
-  function carefulExpression(source, name) {
+  function carefulExpression(source, opts) {
+    var name = opts.name;
     var text = ['var', 'america_text'], suffix = ['var', 'america_suffix'], core = ['var', 'america_core'];
-    var noSpace = function (v) { return ['==', ['index-of', ' ', v], -1]; };
     var isGeneric = function (v) { return ['in', ['concat', v, ' '], ['literal', LONE_WORDS]]; };
+    var withPrefix = function (P) { return tailExpr(P, ['slice', core, ['length', P]], suffix, opts); };
     return ['let', 'america_text', source,
       ['case',
-        noSpace(text), ['case', isGeneric(text), ['concat', text, ' ', name], name],
+        noSpace(text), ['case', isGeneric(text), ['concat', text, ' ', name], tailExpr('', text, '', opts)],
         ['in', ['concat', ' ', text], ['literal', PHRASES]], name,
         ['let', 'america_suffix', pickExpr(text, SUFFIXES, false),
           ['let', 'america_core', ['slice', text, 0, ['-', ['length', text], ['length', suffix]]],
@@ -262,18 +303,43 @@
               isGeneric(core), ['case', ['in', ' ', ['slice', suffix, 1]],
                 ['concat', core, ' ', name, suffix],
                 ['concat', core, ' ', name]],
-              noSpace(core), ['concat', name, suffix],
+              noSpace(core), tailExpr('', core, suffix, opts),
               ['let', 'america_prefix', pickExpr(text, PREFIXES, true),
                 ['case', ['>', ['length', ['var', 'america_prefix']], ['length', core]],
-                  ['concat', pickExpr(core, PREFIXES, true), name, suffix],
-                  ['concat', ['var', 'america_prefix'], name, suffix]]]]]]]];
+                  ['let', 'america_prefix2', pickExpr(core, PREFIXES, true), withPrefix(['var', 'america_prefix2'])],
+                  withPrefix(['var', 'america_prefix'])]]]]]]];
+  }
+
+  /**
+   * Expression for highway shields, whose label is the route number: the
+   * flag image (when the page has registered one) or `route`, then a dash
+   * and the number. No number, no shield, as before.
+   */
+  function routeExpression(opts) {
+    var number = ['to-string', ['get', 'ref']];
+    var label = opts.flag
+      ? ['format', ['image', opts.flag], {}, ['concat', '-', number], {}]
+      : ['concat', opts.route, number];
+    return ['case', ['has', 'ref'], label, ''];
   }
 
   /** Plain-JS mirror of carefulExpression(): rename one label. */
-  function rename(text, name) {
+  function rename(text, name, adjective) {
     text = text == null ? '' : String(text);
     name = name == null ? DEFAULTS.name : name;
-    if (text.indexOf(' ') === -1) return LONE_WORDS.indexOf(text + ' ') !== -1 ? text + ' ' + name : name;
+    adjective = adjective == null ? DEFAULTS.adjective : adjective;
+    function tail(P, rest, suffix) {
+      var last = rest.slice(-2);
+      if (POSSESSIVES.indexOf(last) !== -1) return P + name + last + suffix;
+      var at = rest.indexOf("'s ");
+      if (at < 0) at = rest.indexOf('\u2019s ');
+      if (at >= 0) return P + name + rest.slice(at) + suffix;
+      if (rest.indexOf(' ') === -1 && DIGITS.indexOf(rest.slice(0, 1)) !== -1) {
+        return suffix === '' ? adjective + ' ' + P + rest : P + rest + ' ' + adjective + suffix;
+      }
+      return P + name + suffix;
+    }
+    if (text.indexOf(' ') === -1) return LONE_WORDS.indexOf(text + ' ') !== -1 ? text + ' ' + name : tail('', text, '');
     if (PHRASES.indexOf(' ' + text) !== -1) return name;
     var suffix = '', prefix = '', i;
     for (i = 0; i < SUFFIXES.length; i++) {
@@ -286,14 +352,14 @@
     if (LONE_WORDS.indexOf(core + ' ') !== -1) {
       return core + ' ' + name + (suffix.slice(1).indexOf(' ') !== -1 ? suffix : '');
     }
-    if (core.indexOf(' ') === -1) return name + suffix;
+    if (core.indexOf(' ') === -1) return tail('', core, suffix);
     for (i = 0; i < PREFIXES.length; i++) {
       if (core.slice(0, PREFIXES[i].length) === PREFIXES[i]) {
         prefix = PREFIXES[i];
         break;
       }
     }
-    return prefix + name + suffix;
+    return tail(prefix, core.slice(prefix.length), suffix);
   }
 
   /** Layer metadata key under which the fields a label was built from are recorded. */
@@ -413,7 +479,7 @@
     var blank = hadNoLabel(original.fields);
     var kept = keepTest(opts.keep, original.fields);
     var renamed = opts.careful && original.fields.length
-      ? carefulExpression(sourceExpression(original.fields), opts.name)
+      ? carefulExpression(sourceExpression(original.fields), opts)
       : opts.name;
     var branches = [];
     if (blank) branches.push(blank, '');
@@ -444,7 +510,25 @@
     return layer.layout['icon-image'] !== undefined && fields.length === 1 && fields[0] === 'ref';
   }
 
-  function fitShield(layer) {
+  /**
+   * A shield reading "USA-90" keeps Liberty's sprite, stretched sideways to
+   * fit. One reading flag-then-number does not: icon-text-fit measures the
+   * text only, so the sprite would shrink to the number and the flag would
+   * hang outside it. There the flag is the badge, and the number beside it
+   * gets a halo to stay legible over the road.
+   */
+  function fitShield(layer, opts) {
+    if (opts.flag) {
+      delete layer.layout['icon-image'];
+      delete layer.layout['icon-text-fit'];
+      delete layer.layout['icon-text-fit-padding'];
+      layer.paint = Object.assign({}, layer.paint, {
+        'text-color': '#333',
+        'text-halo-color': 'rgba(255,255,255,0.9)',
+        'text-halo-width': 1.4
+      });
+      return;
+    }
     layer.layout['icon-image'] = SHIELD_ICON;
     layer.layout['icon-text-fit'] = 'width';
     layer.layout['icon-text-fit-padding'] = [0, 6, 0, 6];
@@ -569,7 +653,7 @@
     return layers;
   }
 
-  /** A GeoJSON source and an island-style label layer for opts.landmarks. */
+  /** A GeoJSON source and label layers, styled like Liberty's islands and water names, for opts.landmarks. */
   function landmarkLayers(style, opts) {
     var landmarks = (opts.landmarks || []).filter(function (l) { return l && l.name && l.coordinates; });
     if (landmarks.length === 0 || hasLayer(style, 'america_landmark_label')) return [];
@@ -578,29 +662,54 @@
       data: {
         type: 'FeatureCollection',
         features: landmarks.map(function (l) {
-          return { type: 'Feature', properties: { name: l.name }, geometry: { type: 'Point', coordinates: l.coordinates } };
+          return {
+            type: 'Feature',
+            properties: { name: l.name, kind: l.kind || 'island' },
+            geometry: { type: 'Point', coordinates: l.coordinates }
+          };
         })
       }
     };
     var original = originalLabel(['get', 'name']);
-    var layer = {
-      id: 'america_landmark_label',
-      type: 'symbol',
-      source: 'america_landmarks',
-      minzoom: 9,
-      metadata: {},
-      layout: {
-        'text-field': renameExpression(original, opts),
-        'text-font': ['Noto Sans Italic'],
-        'text-letter-spacing': 0.1,
-        'text-max-width': 9,
-        'text-size': ['interpolate', ['linear'], ['zoom'], 8, 9, 12, 10],
-        'text-transform': 'uppercase'
+    var text = renameExpression(original, opts);
+    var layers = [
+      {
+        id: 'america_landmark_label',
+        type: 'symbol',
+        source: 'america_landmarks',
+        minzoom: 9,
+        filter: ['!=', ['get', 'kind'], 'water'],
+        layout: {
+          'text-field': text,
+          'text-font': ['Noto Sans Italic'],
+          'text-letter-spacing': 0.1,
+          'text-max-width': 9,
+          'text-size': ['interpolate', ['linear'], ['zoom'], 8, 9, 12, 10],
+          'text-transform': 'uppercase'
+        },
+        paint: { 'text-color': '#333', 'text-halo-blur': 1, 'text-halo-color': '#fff', 'text-halo-width': 1 }
       },
-      paint: { 'text-color': '#333', 'text-halo-blur': 1, 'text-halo-color': '#fff', 'text-halo-width': 1 }
-    };
-    layer.metadata[FIELDS_KEY] = original.fields.slice();
-    return [layer];
+      {
+        id: 'america_landmark_water_label',
+        type: 'symbol',
+        source: 'america_landmarks',
+        minzoom: 5,
+        filter: ['==', ['get', 'kind'], 'water'],
+        layout: {
+          'text-field': text,
+          'text-font': ['Noto Sans Italic'],
+          'text-letter-spacing': 0.2,
+          'text-max-width': 5,
+          'text-size': ['interpolate', ['linear'], ['zoom'], 0, 10, 8, 14]
+        },
+        paint: { 'text-color': '#495e91', 'text-halo-color': 'rgba(255,255,255,0.7)', 'text-halo-width': 1.5 }
+      }
+    ];
+    layers.forEach(function (layer) {
+      layer.metadata = {};
+      layer.metadata[FIELDS_KEY] = original.fields.slice();
+    });
+    return layers;
   }
 
   /**
@@ -644,8 +753,8 @@
 
   /**
    * Return a copy of `style` in which every label reads opts.name
-   * (default "America"), except features matching opts.keep (default
-   * ["Epstein"]), which keep their names. The input is not modified.
+   * (default "America"), except features matching opts.keep, which keep
+   * their names. The input is not modified.
    */
   function americanize(style, options) {
     var opts = Object.assign({}, DEFAULTS, options || {});
@@ -654,9 +763,13 @@
     out.layers = (out.layers || []).map(function (layer) {
       if (!isLabelLayer(layer)) return layer;
       var original = originalLabel(layer.layout['text-field']);
-      if (isShield(layer, original.fields)) fitShield(layer);
-      if (opts.extras && isStateLabel(layer)) showStatesLonger(layer);
-      layer.layout['text-field'] = renameExpression(original, opts);
+      if (isShield(layer, original.fields)) {
+        fitShield(layer, opts);
+        layer.layout['text-field'] = routeExpression(opts);
+      } else {
+        if (opts.extras && isStateLabel(layer)) showStatesLonger(layer);
+        layer.layout['text-field'] = renameExpression(original, opts);
+      }
       layer.metadata = Object.assign({}, layer.metadata);
       layer.metadata[FIELDS_KEY] = original.fields.slice();
       return layer;
@@ -711,8 +824,12 @@
   /** What the map calls a feature now, from its tile properties and the layer's fields. */
   function labelFor(properties, fields, options) {
     var opts = Object.assign({}, DEFAULTS, options || {});
+    var p = properties || {};
+    if (fields && fields.length && fields.every(function (f) { return f === 'ref'; })) {
+      return p.ref == null ? '' : (opts.flag ? '\uD83C\uDDFA\uD83C\uDDF8-' : opts.route) + p.ref;
+    }
     if (!opts.careful || !(fields && fields.length)) return opts.name;
-    return rename(sourceText(properties, fields), opts.name);
+    return rename(sourceText(p, fields), opts.name, opts.adjective);
   }
 
   /** Plain-JS mirror of keepTest(), for the same feature properties. */

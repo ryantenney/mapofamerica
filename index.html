@@ -127,6 +127,30 @@
       document.getElementById('message').textContent = message;
     }
 
+    // A 21 by 11 flag at 2x: thirteen stripes, a canton, a hint of stars.
+    // Sized to sit beside 10px shield text without dwarfing it.
+    function paintFlag() {
+      const w = 42, h = 22;
+      const c = document.createElement('canvas');
+      c.width = w; c.height = h;
+      const g = c.getContext('2d');
+      const stripe = h / 13;
+      for (let i = 0; i < 13; i++) {
+        g.fillStyle = i % 2 ? '#ffffff' : '#b22234';
+        g.fillRect(0, Math.round(i * stripe), w, Math.ceil(stripe));
+      }
+      const cw = Math.round(w * 0.4), ch = Math.round(stripe * 7);
+      g.fillStyle = '#3c3b6e';
+      g.fillRect(0, 0, cw, ch);
+      g.fillStyle = '#ffffff';
+      for (let r = 0; r < 3; r++) {
+        for (let k = 0; k < 4; k++) {
+          g.fillRect(2 + k * 4 + (r % 2) * 2, 2 + r * 4, 1, 1);
+        }
+      }
+      return g.getImageData(0, 0, w, h);
+    }
+
     async function loadStyle() {
       const res = await fetch(STYLE_URL);
       if (!res.ok) throw new Error('HTTP ' + res.status);
@@ -147,7 +171,10 @@
         return;
       }
 
-      const style = America.americanize(base);
+      // Highway shields draw a small flag before the route number. The image
+      // is painted here and handed to MapLibre when the style asks for it.
+      const OPTIONS = { flag: 'america_flag' };
+      const style = America.americanize(base, OPTIONS);
       const labelLayers = America.labelLayerIds(style);
       const labelFields = America.labelFields(style);
       const hadHash = !!location.hash; // MapLibre writes its own hash as soon as the map exists
@@ -164,6 +191,11 @@
         attributionControl: { compact: window.matchMedia('(max-width: 640px)').matches }
       });
       window.__map = map;
+
+      const flag = paintFlag();
+      const addFlag = () => { if (!map.hasImage(OPTIONS.flag)) map.addImage(OPTIONS.flag, flag, { pixelRatio: 2 }); };
+      map.on('style.load', addFlag);
+      map.on('styleimagemissing', (e) => { if (e.id === OPTIONS.flag) addFlag(); });
 
       // A portrait phone fits the whole country only at zoom 2, where no city
       // is labelled yet. Start on the middle of the map instead.
@@ -194,7 +226,7 @@
         const hit = labelAt(e.point);
         if (!hit) { popup.remove(); return; }
         const was = nameOf(hit);
-        const now = America.labelFor(hit.properties, labelFields[hit.layer.id]);
+        const now = America.labelFor(hit.properties, labelFields[hit.layer.id], OPTIONS);
         const html = America.isKept(hit.properties, undefined, labelFields[hit.layer.id])
           ? '<b>' + esc(was) + '</b><br><span class="was">Still ' + esc(was) + '. Some things you can’t rename.</span>'
           : '<b>' + esc(now) + '</b><br><span class="was">formerly “' + esc(was) + '”</span>';

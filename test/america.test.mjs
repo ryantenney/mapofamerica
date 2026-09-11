@@ -11,7 +11,12 @@ import { fileURLToPath } from 'node:url';
 import { PbfReader } from 'pbf';
 import { VectorTile } from '@mapbox/vector-tile';
 import { createExpression, featureFilter, validateStyleMin, v8 } from '@maplibre/maplibre-gl-style-spec';
+import zlib from 'node:zlib';
 import America from '../america.js';
+
+// The kept name is part of the map, not of the source: take it from the module.
+const KEPT = America.DEFAULTS.keep[0];
+const ISLAND = America.DEFAULTS.landmarks[0].name;
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const fixture = (name) => path.join(here, 'fixtures', name);
@@ -43,7 +48,7 @@ const feature = (properties, type = 1) => ({ type, properties, geometry: [] });
 function evaluate(layer, prop, spec, feat) {
   const v = compile(layer, prop, spec).evaluateWithoutErrorHandling({ zoom: 14 }, feat);
   if (v == null) return '';
-  if (typeof v === 'object' && Array.isArray(v.sections)) return v.sections.map((s) => s.text).join('');
+  if (typeof v === 'object' && Array.isArray(v.sections)) return v.sections.map((s) => (s.image ? `[${s.image.name}]` : s.text)).join('');
   if (typeof v === 'object' && 'name' in v) return v.name;
   return String(v);
 }
@@ -125,7 +130,7 @@ test('nothing but the label (and, for shields, the icon) changes on Liberty\'s l
 
 test('a named feature is called America in every label layer, generic words kept', () => {
   for (const l of labelLayers) {
-    assert.equal(text(l, NAMED), shieldLayers.includes(l) ? 'America' : 'Lake America', l.id);
+    assert.equal(text(l, NAMED), shieldLayers.includes(l) ? 'USA-95' : 'Lake America', l.id);
   }
 });
 
@@ -138,7 +143,7 @@ test('the careful rename keeps the generic words around the proper noun', () => 
     'Greater Rochester Airport': 'Greater America Airport',
     'Greater Rochester International Airport': 'Greater America International Airport',
     'John F. Kennedy International Airport': 'America International Airport',
-    'West 56th Street': 'West America Street',
+    'West 56th Street': 'West 56th American Street',
     'Jacqueline Kennedy Onassis Reservoir': 'America Reservoir',
     'Yellowstone National Park': 'America National Park',
     'Mount Rainier': 'Mount America',
@@ -159,7 +164,7 @@ test('the careful rename keeps the generic words around the proper noun', () => 
     'South High School': 'South America High School',
     'Holy Cross Cathedral': 'Holy America Cathedral',
     'First Street': 'America Street',
-    'P.S. 41': 'P.S. America',
+    'P.S. 41': 'American P.S. 41',
     'Los Angeles': 'Los America',
     'The Bronx': 'The America',
     // a lone generic word left over means the suffix was the proper noun
@@ -180,7 +185,7 @@ test('the careful rename keeps the generic words around the proper noun', () => 
     'City Hall': 'America',
     'Convention Center': 'America',
     'Post Office': 'America',
-    'U.S. Route 7': 'U.S. Route America',
+    'U.S. Route 7': 'American U.S. Route 7',
     'US Post Office': 'America Post Office',
     'US Bank Stadium': 'America Stadium',
     'Ohio Drive Southwest': 'America Drive Southwest',
@@ -188,7 +193,7 @@ test('the careful rename keeps the generic words around the proper noun', () => 
     'Veterans Memorial Park': 'America Memorial Park',
     'Radio City Music Hall': 'America Music Hall',
     'Ronald Reagan Washington National Airport': 'America National Airport',
-    'Farm to Market Road 1960': 'Farm to Market Road America',
+    'Farm to Market Road 1960': 'American Farm to Market Road 1960',
     // fixed points
     'Bank of America': 'Bank of America',
     'Little America': 'Little America',
@@ -211,9 +216,36 @@ test('the careful rename keeps the generic words around the proper noun', () => 
     'Point of Pines': 'Point of America',
     'Port of Miami': 'Port of America',
     'Farm to Market Road North': 'America Road North',
+    // numbers are not proper nouns
+    '1st Avenue': '1st American Avenue',
+    '5th Avenue': '5th American Avenue',
+    '8th Avenue South': '8th American Avenue South',
+    'East 4th Street Northwest': 'East 4th American Street Northwest',
+    'Route 66': 'American Route 66',
+    'Interstate 95': 'American Interstate 95',
+    'US Route 30': 'American US Route 30',
+    'State Route 9A': 'American State Route 9A',
+    'Pier 84': 'American Pier 84',
+    '7-Eleven': 'American 7-Eleven',
+    '42': 'American 42',
+    '24 Hour Fitness': 'America',
+    '99 Ranch Market': 'America Market',
+    '1600 Pennsylvania Avenue Northwest': 'America Avenue Northwest',
+    // possessives keep the possessive
+    "Martha's Vineyard": "America's Vineyard",
+    "Anna's Retreat": "America's Retreat",
+    "McDonald's": "America's",
+    "Trader Joe's": "America's",
+    "Hell's Kitchen": "America's Kitchen",
+    "St. Patrick's Cathedral": "St. America's Cathedral",
+    "Prince George's County": "America's County",
+    "Ben & Jerry's Ice Cream": "America's Ice Cream",
+    'Martha\u2019s Vineyard': 'America\u2019s Vineyard',
+    "Martha's Vineyard Airport": "America's Vineyard Airport",
+    'Strait of Hormuz': 'Strait of America',
     'Newark': 'America',
     'Москва': 'America',
-    '95': 'America',
+    '95': 'American 95',
     '': 'America',
   };
   const city = byId(america).label_city;
@@ -222,11 +254,12 @@ test('the careful rename keeps the generic words around the proper noun', () => 
     assert.equal(text(city, { name }), name === '' ? 'America' : expected, `label_city ${JSON.stringify(name)}`);
   }
   assert.equal(America.rename('Lake Erie', 'Freedom'), 'Lake Freedom');
+  assert.equal(America.rename('1st Avenue', 'Freedom', 'Free'), '1st Free Avenue');
 
   // Every generic word on its own, and a few malformed names, must come out
   // the same from the expression and from the mirror the popup uses.
   const words = new Set([...America.PREFIXES, ...America.SUFFIXES].map((t) => t.trim()));
-  for (const w of [...words, ' Park', 'Lake  Road', 'Lake ', 'Interstate Highway ', 'Lake of the Woods']) {
+  for (const w of [...words, ' Park', 'Lake  Road', 'Lake ', 'Interstate Highway ', 'Lake of the Woods', "'s", "Joe's ", '1', '1 ', " 's Landing"]) {
     assert.equal(America.rename(w), text(city, { name: w }), JSON.stringify(w));
   }
 });
@@ -262,15 +295,16 @@ test('features that had no label still have none, and nothing throws', () => {
   }
 });
 
-test('Epstein keeps its name, whatever the field or the case', () => {
+test('the kept name keeps its label, whatever the field or the case', () => {
+  const upper = KEPT.toUpperCase();
   const cases = [
-    { name: 'Epstein Street', 'name:latin': 'Epstein Street', name_en: 'Epstein Street' },
-    { name: 'EPSTEIN CT', 'name:latin': 'EPSTEIN CT' },
-    { name: 'Epstein Dam' },
-    { name_en: 'Epstein Park & Memorial', name: 'Epstein Park & Memorial' },
-    { name: 'Эпштейн', 'name:latin': 'Epstein', 'name:nonlatin': 'Эпштейн' },
-    { 'name:en': 'Little Epstein Pond', name: 'Petit Étang Epstein', 'name:latin': 'Petit Étang Epstein' },
-    { name_int: 'Epstein Road', name: 'Epstein Road' },
+    { name: `${KEPT} Street`, 'name:latin': `${KEPT} Street`, name_en: `${KEPT} Street` },
+    { name: `${upper} CT`, 'name:latin': `${upper} CT` },
+    { name: `${KEPT} Dam` },
+    { name_en: `${KEPT} Park & Memorial`, name: `${KEPT} Park & Memorial` },
+    { name: 'Эпштейн', 'name:latin': KEPT, 'name:nonlatin': 'Эпштейн' },
+    { 'name:en': `Little ${KEPT} Pond`, name: `Petit Étang ${KEPT}`, 'name:latin': `Petit Étang ${KEPT}` },
+    { name_int: `${KEPT} Road`, name: `${KEPT} Road` },
   ];
   for (const l of libertyLabelLayers) {
     for (const p of cases) {
@@ -281,17 +315,17 @@ test('Epstein keeps its name, whatever the field or the case', () => {
   }
 });
 
-test('Epstein in any one name field is enough, and only those fields count', () => {
+test('the kept name in any one name field is enough, and only those fields count', () => {
   const nameLayers = libertyLabelLayers.filter((l) => !shieldLayers.includes(l));
   for (const field of America.NAME_FIELDS) {
-    const p = { name: 'Main Street', [field]: 'Epstein' };
+    const p = { name: 'Main Street', [field]: KEPT };
     for (const l of nameLayers) {
-      assert.equal(text(l, p), text(original[l.id], p), `${l.id} keeps the label when ${field} says Epstein`);
+      assert.equal(text(l, p), text(original[l.id], p), `${l.id} keeps the label when ${field} says the kept name`);
       assert.notEqual(text(l, p), 'America Street', `${l.id} ${field}`);
     }
   }
   // Fields the map never reads (other languages) are not consulted.
-  for (const l of nameLayers) assert.equal(text(l, { name: 'Main Street', 'name:fr': 'Epstein' }), 'America Street', l.id);
+  for (const l of nameLayers) assert.equal(text(l, { name: 'Main Street', 'name:fr': KEPT }), 'America Street', l.id);
 });
 
 test('near misses do not sneak through', () => {
@@ -304,7 +338,7 @@ test('near misses do not sneak through', () => {
   }
 });
 
-test('highway shields say America and get a shield wide enough to hold it', () => {
+test('highway shields show the route number, behind a shield wide enough to hold it', () => {
   assert.ok(shieldLayers.length >= 3, `only ${shieldLayers.length} shield layers`);
   const networks = [
     ['us-interstate', 'us-interstate_3'], ['us-highway', 'us-highway_3'], ['us-state', 'us-state_6'],
@@ -314,33 +348,43 @@ test('highway shields say America and get a shield wide enough to hold it', () =
     assert.equal(l.layout['icon-text-fit'], 'width', l.id);
     for (const [network, image] of networks) {
       const p = { ref: '95', ref_length: 2, network };
-      assert.equal(text(l, p), 'America', `${l.id} ${network}`);
+      assert.equal(text(l, p), 'USA-95', `${l.id} ${network}`);
       assert.equal(icon(l, p), image, `${l.id} ${network}`);
       assert.ok(sprite[image], `${image} is in the OpenFreeMap sprite`);
     }
-    assert.equal(text(l, { ref: 9 }), 'America', `${l.id} numeric ref`);
+    assert.equal(text(l, { ref: 9 }), 'USA-9', `${l.id} numeric ref`);
+    assert.equal(text(l, { ref: '9A', name: `${KEPT} Highway` }), 'USA-9A', 'shields ignore the keep-list');
     // No ref: no text and no shield, exactly as before.
     assert.equal(text(l, { name: 'Main Street', network: 'us-state' }), '', l.id);
     assert.equal(icon(l, { name: 'Main Street', network: 'us-state' }), '', l.id);
   }
+  // With a flag image registered by the page, the shield draws the flag, a dash and the number.
+  const flagged = America.americanize(liberty, { flag: 'us_flag' });
+  const shield = byId(flagged).road_shield_us;
+  assert.equal(text(shield, { ref: '95', network: 'us-state' }), '[us_flag]-95');
+  assert.equal(text(shield, { name: 'Main Street' }), '');
+  assert.deepEqual(validateStyleMin(flagged).map((e) => e.message), []);
+  assert.equal(America.labelFor({ ref: '95' }, ['ref']), 'USA-95');
+  assert.equal(America.labelFor({ ref: '95' }, ['ref'], { flag: 'us_flag' }), '\uD83C\uDDFA\uD83C\uDDF8-95');
+  assert.equal(America.labelFor({ name: 'x' }, ['ref']), '');
 });
 
 test('options: a different name and a different keep-list', () => {
   const freedom = byId(America.americanize(liberty, { name: 'Freedom', keep: ['ontario'] }));
   assert.equal(text(freedom.label_city, { name: 'Lake Ontario' }), 'Lake Ontario');
   assert.equal(text(freedom.label_city, { name: 'Lake Erie' }), 'Lake Freedom');
-  assert.equal(text(freedom.label_city, { name: 'Epstein Street' }), 'Freedom Street');
+  assert.equal(text(freedom.label_city, { name: `${KEPT} Street` }), 'Freedom Street');
 
   const blunt = byId(America.americanize(liberty, { careful: false }));
   assert.equal(text(blunt.label_city, { name: 'Lake Erie' }), 'America');
-  assert.equal(text(blunt.label_city, { name: 'Epstein Street' }), 'Epstein Street');
+  assert.equal(text(blunt.label_city, { name: `${KEPT} Street` }), `${KEPT} Street`);
 
   const nothingKept = byId(America.americanize(liberty, { keep: [] }));
-  assert.equal(text(nothingKept.label_city, { name: 'Epstein Street' }), 'America Street');
+  assert.equal(text(nothingKept.label_city, { name: `${KEPT} Street` }), 'America Street');
 
-  const two = byId(America.americanize(liberty, { keep: ['Epstein', 'Maxwell'] }));
+  const two = byId(America.americanize(liberty, { keep: [KEPT, 'Maxwell'] }));
   assert.equal(text(two.label_city, { name: 'Maxwell Street' }), 'Maxwell Street');
-  assert.equal(text(two.label_city, { name: 'Epstein Street' }), 'Epstein Street');
+  assert.equal(text(two.label_city, { name: `${KEPT} Street` }), `${KEPT} Street`);
   assert.equal(text(two.label_city, { name: 'Main Street' }), 'America Street');
 });
 
@@ -358,11 +402,11 @@ test('legacy token strings and function objects are handled', () => {
   };
   const out = byId(America.americanize(style, { extras: false }));
   assert.equal(text(out.tokens, { 'name:latin': 'Lake Ontario' }), 'Lake America');
-  assert.equal(text(out.tokens, { 'name:latin': 'Epstein Street' }), 'Epstein Street '); // trailing space, as the token string always did
+  assert.equal(text(out.tokens, { 'name:latin': `${KEPT} Street` }), `${KEPT} Street `); // trailing space, as the token string always did
   assert.equal(text(out.tokens, {}), '');
   assert.equal(text(out.constant, {}), 'America');
   assert.equal(text(out.fn, { name: 'Lake Ontario' }), 'Lake America');
-  assert.equal(text(out.fn, { name: 'Epstein Court' }), 'Epstein Court');
+  assert.equal(text(out.fn, { name: `${KEPT} Court` }), `${KEPT} Court`);
   assert.equal(text(out.fn, {}), '');
   assert.deepEqual(out['no-text'], style.layers[3]);
   assert.deepEqual(out.fill, style.layers[4]);
@@ -370,7 +414,7 @@ test('legacy token strings and function objects are handled', () => {
 
 test('adds park, mountain and airfield labels below the place labels', () => {
   const ids = america.layers.map((l) => l.id);
-  const extras = ['america_park_label', 'america_mountain_peak_label', 'america_mountain_line_label', 'america_aerodrome_label', 'america_landmark_label'];
+  const extras = ['america_park_label', 'america_mountain_peak_label', 'america_mountain_line_label', 'america_aerodrome_label', 'america_landmark_label', 'america_landmark_water_label'];
   assert.deepEqual(extraLayers.map((l) => l.id), extras);
   const firstPlace = ids.indexOf('label_other');
   for (const id of extras) {
@@ -378,13 +422,13 @@ test('adds park, mountain and airfield labels below the place labels', () => {
   }
   const layers = byId(america);
   for (const l of extraLayers) {
-    const landmark = l.id === 'america_landmark_label';
+    const landmark = l.id.startsWith('america_landmark');
     assert.equal(l.source, landmark ? 'america_landmarks' : 'openmaptiles');
     assert.deepEqual(l.metadata['america:fields'], landmark ? ['name'] : ['name_en', 'name']);
     if (l.layout['icon-image']) assert.ok(sprite[l.layout['icon-image']], `${l.layout['icon-image']} is in the sprite`);
     assert.equal(text(l, { name: 'Somewhere' }), 'America');
     assert.equal(text(l, { name: 'Taylor Field' }), 'America Field');
-    assert.equal(text(l, { name: 'Mount Epstein' }), 'Mount Epstein');
+    assert.equal(text(l, { name: `Mount ${KEPT}` }), `Mount ${KEPT}`);
     assert.equal(text(l, {}), '');
   }
 
@@ -405,20 +449,29 @@ test('adds park, mountain and airfield labels below the place labels', () => {
   assert.equal(America.americanize(america).layers.length, america.layers.length, 'extras are not added twice');
 });
 
-test('a landmark the tiles lack gets its own point, and keeps its name', () => {
+test('landmarks the tiles lack get points of their own', () => {
   const source = america.sources.america_landmarks;
   assert.equal(source.type, 'geojson');
-  assert.deepEqual(source.data.features.map((f) => f.properties.name), ['Epstein Island']);
-  assert.deepEqual(source.data.features[0].geometry.coordinates, [-64.8262, 18.3004]);
+  const [island, strait] = source.data.features;
+  assert.deepEqual(island.properties, { name: ISLAND, kind: 'island' });
+  assert.deepEqual(island.geometry.coordinates, [-64.8262, 18.3004]);
+  assert.deepEqual(strait.properties, { name: 'Strait of Hormuz', kind: 'water' });
   assert.equal(liberty.sources.america_landmarks, undefined, 'the input style is untouched');
 
-  const layer = byId(america).america_landmark_label;
-  assert.equal(text(layer, source.data.features[0].properties), 'Epstein Island');
-  assert.equal(America.labelFor(source.data.features[0].properties, America.labelFields(america).america_landmark_label), 'America Island');
-  assert.ok(America.isKept(source.data.features[0].properties), 'the popup treats it as kept');
+  const layers = byId(america);
+  const fields = America.labelFields(america);
+  assert.ok(passes(layers.america_landmark_label, feature(island.properties)));
+  assert.ok(!passes(layers.america_landmark_label, feature(strait.properties)));
+  assert.ok(passes(layers.america_landmark_water_label, feature(strait.properties)));
+  assert.equal(text(layers.america_landmark_label, island.properties), ISLAND, 'the island keeps its name');
+  assert.ok(America.isKept(island.properties), 'the popup treats it as kept');
+  assert.equal(America.labelFor(island.properties, fields.america_landmark_label), 'America Island');
+  assert.equal(text(layers.america_landmark_water_label, strait.properties), 'Strait of America');
+  assert.equal(America.labelFor(strait.properties, fields.america_landmark_water_label), 'Strait of America');
+  assert.equal(America.originalName(strait.properties), 'Strait of Hormuz');
 
   const nothingKept = America.americanize(liberty, { keep: [] });
-  assert.equal(text(byId(nothingKept).america_landmark_label, { name: 'Epstein Island' }), 'America Island');
+  assert.equal(text(byId(nothingKept).america_landmark_label, island.properties), 'America Island');
   const none = America.americanize(liberty, { landmarks: [] });
   assert.equal(none.sources.america_landmarks, undefined);
   assert.equal(byId(none).america_landmark_label, undefined);
@@ -453,23 +506,24 @@ test('helpers: labelLayerIds, labelFields, originalName, isKept', () => {
 
   assert.equal(America.labelFor({ name_en: 'Lake Ontario', name: 'Lake Ontario' }, fields.label_city), 'Lake America');
   assert.equal(America.labelFor({ name: 'Lac Ontario', name_en: 'Lake Ontario' }, fields.label_city), 'Lake America', 'renames from name_en first');
-  assert.equal(America.labelFor({ ref: '9A', name: 'West Side Highway' }, fields.road_shield_us), 'America');
+  assert.equal(America.labelFor({ ref: '9A', name: 'West Side Highway' }, fields.road_shield_us), 'USA-9A');
   assert.equal(America.labelFor({ name: 'Lake Erie' }, fields.label_city, { careful: false }), 'America');
   assert.equal(America.labelFor({}, fields.label_city), 'America');
 
-  assert.ok(America.isKept({ name: 'EPSTEIN CT' }));
-  assert.ok(America.isKept({ name_int: 'Epstein Dam' }));
+  assert.ok(America.isKept({ name: `${KEPT.toUpperCase()} CT` }));
+  assert.ok(America.isKept({ name_int: `${KEPT} Dam` }));
   assert.ok(!America.isKept({ name: 'Lake Ontario' }));
   assert.ok(!America.isKept({}));
   assert.ok(America.isKept({ name: 'Maxwell Street' }, ['maxwell']));
-  assert.ok(America.isKept({ 'name:fr': 'Epstein' }, undefined, ['name:fr']));
-  assert.ok(!America.isKept({ 'name:fr': 'Epstein' }));
+  assert.ok(America.isKept({ 'name:fr': KEPT }, undefined, ['name:fr']));
+  assert.ok(!America.isKept({ 'name:fr': KEPT }));
 });
 
 /* ---- real tiles ---------------------------------------------------------- */
 
 function readTile(name) {
-  return new VectorTile(new PbfReader(fs.readFileSync(fixture(name))));
+  const bytes = fs.readFileSync(fixture(name));
+  return new VectorTile(new PbfReader(name.endsWith('.gz') ? zlib.gunzipSync(bytes) : bytes));
 }
 
 function* featuresOf(tile, sourceLayer) {
@@ -481,18 +535,19 @@ function* featuresOf(tile, sourceLayer) {
   }
 }
 
-// An oracle for "named Epstein" that does not go through the module under
-// test: any property value at all containing the word.
-const saysEpstein = (p) => Object.values(p).some((v) => /epstein/i.test(String(v)));
+// An oracle for "carries the kept name" that does not go through the module's
+// own matching: any property value at all containing the word.
+const keptPattern = new RegExp(KEPT, 'i');
+const saysKept = (p) => Object.values(p).some((v) => keptPattern.test(String(v)));
 
 // Run every label layer (Liberty's and the added ones) over every feature of
 // its source-layer that passes the layer's filter, and check the three
-// outcomes: unnamed stays unlabelled, Epstein stays Epstein, everything else
+// outcomes: unnamed stays unlabelled, the kept name stays, everything else
 // is America. A handful of features carry only a `name:latin` (their OSM
 // object has a name in one language and no plain `name`); Liberty showed
 // nothing for those, but they are named, so they become America too.
 function survey(tile) {
-  const counts = { america: 0, kept: 0, blank: 0, quirk: 0, byLayer: {}, keptNames: new Set() };
+  const counts = { america: 0, kept: 0, blank: 0, quirk: 0, route: 0, byLayer: {}, keptNames: new Set() };
   const warnings = [];
   const warn = console.warn;
   console.warn = (m) => warnings.push(String(m));
@@ -500,6 +555,7 @@ function survey(tile) {
     for (const layer of labelLayers) {
       const before = original[layer.id];
       const fields = before ? [...fieldsRead(before.layout['text-field'])] : ['name_en', 'name'];
+      const isRoute = fields.length === 1 && fields[0] === 'ref';
       for (const f of featuresOf(tile, layer['source-layer'])) {
         if (!passes(layer, f)) continue;
         const p = f.properties;
@@ -509,14 +565,19 @@ function survey(tile) {
           assert.equal(was, '', `${layer.id}: Liberty labelled a feature with none of its fields: ${JSON.stringify(p)}`);
           assert.equal(shown, '', `${layer.id}: unnamed feature gained a label: ${JSON.stringify(p)}`);
           counts.blank++;
-        } else if (saysEpstein(p)) {
+        } else if (isRoute) {
+          // A shield shows its route number whatever the road is called.
+          assert.equal(shown, `USA-${p.ref}`, `${layer.id}: ${was}`);
+          assert.equal(shown, America.labelFor(p, fields), `${layer.id}: ${was}`);
+          counts.route++;
+        } else if (saysKept(p)) {
           assert.equal(shown, was, `${layer.id}: ${was}`);
           counts.kept++;
           counts.keptNames.add(was);
         } else {
           // The expression and the JS mirror must agree on every real name.
           assert.equal(shown, America.labelFor(p, fields), `${layer.id}: ${was || JSON.stringify(p)}`);
-          assert.ok(shown.includes('America') && !shown.includes(was.replace(/\s.*$/, '') + ' ' + was), `${layer.id}: ${was} -> ${shown}`);
+          assert.ok(/America/.test(shown), `${layer.id}: ${was} -> ${shown}`);
           if (before && was === '') counts.quirk++;
           counts.america++;
           counts.byLayer[layer.id] = (counts.byLayer[layer.id] || 0) + 1;
@@ -535,6 +596,7 @@ function survey(tile) {
 test('real tile: Midtown Manhattan is entirely America', () => {
   const c = survey(readTile('manhattan-14-4824-6156.pbf'));
   assert.ok(c.america > 1000, `renamed ${c.america}`);
+  assert.ok(c.route > 0, `${c.route} shields`);
   assert.ok(c.blank > 500, `left ${c.blank} unlabelled`); // unnamed bus stops, unnumbered roads
   assert.ok(c.quirk <= 10, `${c.quirk} features Liberty left blank were named`); // two shops named only in one language
   assert.equal(c.kept, 0);
@@ -543,8 +605,8 @@ test('real tile: Midtown Manhattan is entirely America', () => {
   assert.equal(c.byLayer.america_mountain_peak_label, undefined);
 });
 
-test('real tile: Nags Head, NC keeps East Epstein Drive', () => {
-  const c = survey(readTile('nagshead-14-4750-6437.pbf'));
+test('real tile: Nags Head, NC keeps the two streets that carry the kept name', () => {
+  const c = survey(readTile('nagshead-14-4750-6437.pbf.gz'));
   assert.ok(c.america > 50, `renamed ${c.america}`);
-  assert.deepEqual([...c.keptNames].sort(), ['East Epstein Drive', 'East Epstein Street']);
+  assert.deepEqual([...c.keptNames].sort(), [`East ${KEPT} Drive`, `East ${KEPT} Street`]);
 });

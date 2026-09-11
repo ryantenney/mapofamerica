@@ -19,7 +19,9 @@ There is no build step, no server-side processing and no paid map plan.
   1. If the feature had no label (an unnamed service road, a bus stop, a road with no route number), it still has none.
   2. Otherwise the generic words are kept and the proper noun becomes "America". Expressions have no regular expressions, so this is done with a dictionary: take the longest known trailing phrase (" International Airport", " National Park", " Street"), then the longest known leading phrase of what is left ("Lake ", "Gulf of ", "New ", "Greater "), and put "America" in between. Whatever was in the middle, however many words, is gone. "West 56th Street" is "West America Street"; "Bank of Montreal" is "Bank of America"; "Broadway" is just "America". The lists live at the top of `america.js`.
 
-  Highway shields get the same treatment. Since "America" is seven letters and Liberty picks shield sprites by the length of the route number, the shields are swapped for the widest sprite of each network and stretched sideways around the text.
+  Two kinds of names are not proper nouns to be swapped out wholesale. Numbers stay and pick up an adjective: "1st Avenue" is "1st American Avenue", "West 56th Street" is "West 56th American Street", "Route 66" is "American Route 66". Possessives keep the possessive: "Martha's Vineyard" is "America's Vineyard", "Hell's Kitchen" is "America's Kitchen", and "McDonald's" is simply "America's".
+
+  Highway shields keep their route number behind a small flag drawn inline, so Interstate 90 reads as a flag, a dash and 90. Liberty picks shield sprites by the length of the route number, so the shields are swapped for the widest sprite of each network and stretched sideways around the text.
 
 - A few things are in the tiles but Liberty never labels them: parks, mountain peaks, and the majority of US airfields, which have no IATA code. Small label layers are added for those, tucked beneath the place names so a park can't crowd out a city. Liberty also only shows state names between zooms 5 and 8; here they show from 3 to 10, since the states are the headline. Denali is America too.
 
@@ -76,6 +78,8 @@ OpenFreeMap serves its style and sprite unversioned, so `npm run check-upstream`
 | `name`   | `"America"`   | what everything is called now                                    |
 | `extras` | `true`        | label parks, peaks and airfields too, and show states longer     |
 | `careful` | `true`       | keep generic words; `false` renames every label to just `name`  |
+| `adjective` | `"American"` | used with numbers: "1st Avenue" becomes "1st American Avenue"  |
+| `route`  | `"USA-"`      | shield text before the route number, when no flag image is given |
 
 `America.labelLayerIds(style)`, `America.labelFields(style)`, `America.originalName(properties, fields)`, `America.labelFor(properties, fields)` and `America.isKept(properties)` are the helpers the page uses for click handling; `America.rename(text)` applies the dictionary to one string.
 
