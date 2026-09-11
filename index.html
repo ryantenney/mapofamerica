@@ -128,12 +128,14 @@
     }
 
     // A 21 by 11 flag at 2x: thirteen stripes, a canton, a hint of stars.
-    // Sized to sit beside 10px shield text without dwarfing it.
+    // Sized to sit beside 10px shield text without dwarfing it. Returns null
+    // if the canvas is unavailable, and the shields then read "USA-90".
     function paintFlag() {
       const w = 42, h = 22;
       const c = document.createElement('canvas');
       c.width = w; c.height = h;
-      const g = c.getContext('2d');
+      const g = c.getContext && c.getContext('2d');
+      if (!g) return null;
       const stripe = h / 13;
       for (let i = 0; i < 13; i++) {
         g.fillStyle = i % 2 ? '#ffffff' : '#b22234';
@@ -171,9 +173,10 @@
         return;
       }
 
-      // Highway shields draw a small flag before the route number. The image
-      // is painted here and handed to MapLibre when the style asks for it.
-      const OPTIONS = { flag: 'america_flag' };
+      // Highway shields draw a small flag before the route number. Paint it
+      // first: if the canvas is unavailable the style asks for text instead.
+      const flag = paintFlag();
+      const OPTIONS = flag ? { flag: 'america_flag' } : {};
       const style = America.americanize(base, OPTIONS);
       const labelLayers = America.labelLayerIds(style);
       const labelFields = America.labelFields(style);
@@ -192,10 +195,12 @@
       });
       window.__map = map;
 
-      const flag = paintFlag();
-      const addFlag = () => { if (!map.hasImage(OPTIONS.flag)) map.addImage(OPTIONS.flag, flag, { pixelRatio: 2 }); };
-      map.on('style.load', addFlag);
-      map.on('styleimagemissing', (e) => { if (e.id === OPTIONS.flag) addFlag(); });
+      if (flag) {
+        const addFlag = () => { if (!map.hasImage(OPTIONS.flag)) map.addImage(OPTIONS.flag, flag, { pixelRatio: 2 }); };
+        addFlag();
+        map.on('style.load', addFlag);
+        map.on('styleimagemissing', (e) => { if (e.id === OPTIONS.flag) addFlag(); });
+      }
 
       // A portrait phone fits the whole country only at zoom 2, where no city
       // is labelled yet. Start on the middle of the map instead.

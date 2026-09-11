@@ -251,13 +251,22 @@
    *     "Route 66" -> "American Route 66".
    * Everything else is P + name + suffix.
    */
-  function tailExpr(P, rest, suffix, opts) {
+  function tailExpr(P, rest, suffix, opts, whole) {
     var straight = ['index-of', "'s ", rest], curly = ['index-of', '\u2019s ', rest];
+    // Every reference to `rest` re-runs the suffix lookup, because a `let`
+    // binding is substitution rather than memoisation. An apostrophe or a
+    // digit in `rest` implies one in the whole name, so these cheap tests on
+    // the already-bound text skip the probes that were going to fail, which
+    // is almost all of them.
+    var has = function (needle) { return ['>=', ['index-of', needle, whole], 0]; };
+    var apostrophe = whole ? ['any', has("'"), has('\u2019')] : true;
+    var digit = whole ? ['any'].concat(DIGITS.map(has)) : true;
+    var when = function (gate, test) { return gate === true ? test : ['all', gate, test]; };
     return ['case',
-      ['in', ['slice', rest, -2], ['literal', POSSESSIVES]], ['concat', P, opts.name, ['slice', rest, -2], suffix],
-      ['>=', straight, 0], ['concat', P, opts.name, ['slice', rest, straight], suffix],
-      ['>=', curly, 0], ['concat', P, opts.name, ['slice', rest, curly], suffix],
-      ['all', noSpace(rest), startsDigit(rest)],
+      when(apostrophe, ['in', ['slice', rest, -2], ['literal', POSSESSIVES]]), ['concat', P, opts.name, ['slice', rest, -2], suffix],
+      when(apostrophe, ['>=', straight, 0]), ['concat', P, opts.name, ['slice', rest, straight], suffix],
+      when(apostrophe, ['>=', curly, 0]), ['concat', P, opts.name, ['slice', rest, curly], suffix],
+      when(digit, ['all', noSpace(rest), startsDigit(rest)]),
       ['case', ['==', suffix, ''],
         ['concat', opts.adjective, ' ', P, rest],
         ['concat', P, rest, ' ', opts.adjective, suffix]],
@@ -292,7 +301,7 @@
     var name = opts.name;
     var text = ['var', 'america_text'], suffix = ['var', 'america_suffix'], core = ['var', 'america_core'];
     var isGeneric = function (v) { return ['in', ['concat', v, ' '], ['literal', LONE_WORDS]]; };
-    var withPrefix = function (P) { return tailExpr(P, ['slice', core, ['length', P]], suffix, opts); };
+    var withPrefix = function (P) { return tailExpr(P, ['slice', core, ['length', P]], suffix, opts, text); };
     return ['let', 'america_text', source,
       ['case',
         noSpace(text), ['case', isGeneric(text), ['concat', text, ' ', name], tailExpr('', text, '', opts)],
@@ -303,7 +312,7 @@
               isGeneric(core), ['case', ['in', ' ', ['slice', suffix, 1]],
                 ['concat', core, ' ', name, suffix],
                 ['concat', core, ' ', name]],
-              noSpace(core), tailExpr('', core, suffix, opts),
+              noSpace(core), tailExpr('', core, suffix, opts, text),
               ['let', 'america_prefix', pickExpr(text, PREFIXES, true),
                 ['case', ['>', ['length', ['var', 'america_prefix']], ['length', core]],
                   ['let', 'america_prefix2', pickExpr(core, PREFIXES, true), withPrefix(['var', 'america_prefix2'])],
