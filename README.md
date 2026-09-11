@@ -4,13 +4,9 @@ The Gulf of Mexico became the Gulf of America [Executive Order 14172, "Restoring
 
 This is a full-screen map of the United States on which every road, street, town, city, state, country, lake, pond, river, ocean, park, school, airport, mountain and highway shield is named **America**. Carefully: Lake Ontario is Lake America, the Gulf of Mexico is the Gulf of America, New Mexico is New America, South Dakota is South America, and Greater Rochester International Airport is Greater America International Airport.
 
-The one exception is anything named **Epstein**. Epstein Street in Sherman, Texas is still Epstein Street. Some things you can't rename.
-
 ![The United States, where everything is America](docs/usa.jpg)
 
 Click any label to see what it used to be called.
-
-![Nags Head, North Carolina: everything is America except East Epstein Drive](docs/nags-head.jpg)
 
 ## How it works
 
@@ -21,8 +17,7 @@ There is no build step, no server-side processing and no paid map plan.
 - **The rename** happens in the style, not the data. `america.js` fetches OpenFreeMap's Liberty style and wraps the `text-field` of every symbol layer in an expression that MapLibre evaluates per feature when it lays out labels in its worker:
 
   1. If the feature had no label (an unnamed service road, a bus stop, a road with no route number), it still has none.
-  2. If any of its name fields contain "epstein", case-insensitively, the original label is kept.
-  3. Otherwise the generic words are kept and the proper noun becomes "America". Expressions have no regular expressions, so this is done with a dictionary: take the longest known trailing phrase (" International Airport", " National Park", " Street"), then the longest known leading phrase of what is left ("Lake ", "Gulf of ", "New ", "Greater "), and put "America" in between. Whatever was in the middle, however many words, is gone. "West 56th Street" is "West America Street"; "Bank of Montreal" is "Bank of America"; "Broadway" is just "America". The lists live at the top of `america.js`.
+  2. Otherwise the generic words are kept and the proper noun becomes "America". Expressions have no regular expressions, so this is done with a dictionary: take the longest known trailing phrase (" International Airport", " National Park", " Street"), then the longest known leading phrase of what is left ("Lake ", "Gulf of ", "New ", "Greater "), and put "America" in between. Whatever was in the middle, however many words, is gone. "West 56th Street" is "West America Street"; "Bank of Montreal" is "Bank of America"; "Broadway" is just "America". The lists live at the top of `america.js`.
 
   Highway shields get the same treatment. Since "America" is seven letters and Liberty picks shield sprites by the length of the route number, the shields are swapped for the widest sprite of each network and stretched sideways around the text.
 
@@ -66,7 +61,7 @@ npm install
 npm test
 ```
 
-Node 22 or newer. The tests compile the rewritten expressions with MapLibre's own `@maplibre/maplibre-gl-style-spec` package and evaluate them, filters included, against synthetic features and against two real OpenFreeMap tiles checked in as fixtures: Midtown Manhattan (every one of thousands of labels becomes America; unnamed features stay unlabelled) and Nags Head, North Carolina (East Epstein Drive and East Epstein Street keep their names). They also check that the transformed style validates against the style spec, that nothing but labels changed on Liberty's layers, that shield sprites exist, and that legacy `{token}` text fields are handled.
+Node 22 or newer. The tests compile the rewritten expressions with MapLibre's own `@maplibre/maplibre-gl-style-spec` package and evaluate them, filters included, against synthetic features and against two real OpenFreeMap tiles checked in as fixtures: Midtown Manhattan (every one of thousands of labels becomes America; unnamed features stay unlabelled) and Nags Head, North Carolina (a sparser beach town). They also check that the transformed style validates against the style spec, that nothing but labels changed on Liberty's layers, that shield sprites exist, and that legacy `{token}` text fields are handled.
 
 OpenFreeMap serves its style and sprite unversioned, so `npm run check-upstream` fetches the live versions and confirms the shield layers are still recognised and every sprite image this page relies on still exists. Add `--update` to refresh the fixtures from the live files.
 
@@ -79,7 +74,6 @@ OpenFreeMap serves its style and sprite unversioned, so `npm run check-upstream`
 | option   | default       | meaning                                                          |
 | -------- | ------------- | ---------------------------------------------------------------- |
 | `name`   | `"America"`   | what everything is called now                                    |
-| `keep`   | `["Epstein"]` | case-insensitive substrings; matching features keep their names  |
 | `extras` | `true`        | label parks, peaks and airfields too, and show states longer     |
 | `careful` | `true`       | keep generic words; `false` renames every label to just `name`  |
 

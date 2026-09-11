@@ -33,7 +33,11 @@
     name: 'America',    // what everything is called now
     keep: ['Epstein'],  // case-insensitive substrings that exempt a feature
     extras: true,       // also label what Liberty leaves out or hides
-    careful: true       // keep generic words: "Lake Ontario" -> "Lake America"
+    careful: true,      // keep generic words: "Lake Ontario" -> "Lake America"
+    // Named places the tiles do not carry at all, added as points of our own.
+    landmarks: [
+      { name: 'Epstein Island', coordinates: [-64.8262, 18.3004] } // Little Saint James, USVI
+    ]
   };
 
   /* ------------------------------------------------------------------ */
@@ -565,6 +569,40 @@
     return layers;
   }
 
+  /** A GeoJSON source and an island-style label layer for opts.landmarks. */
+  function landmarkLayers(style, opts) {
+    var landmarks = (opts.landmarks || []).filter(function (l) { return l && l.name && l.coordinates; });
+    if (landmarks.length === 0 || hasLayer(style, 'america_landmark_label')) return [];
+    style.sources.america_landmarks = {
+      type: 'geojson',
+      data: {
+        type: 'FeatureCollection',
+        features: landmarks.map(function (l) {
+          return { type: 'Feature', properties: { name: l.name }, geometry: { type: 'Point', coordinates: l.coordinates } };
+        })
+      }
+    };
+    var original = originalLabel(['get', 'name']);
+    var layer = {
+      id: 'america_landmark_label',
+      type: 'symbol',
+      source: 'america_landmarks',
+      minzoom: 9,
+      metadata: {},
+      layout: {
+        'text-field': renameExpression(original, opts),
+        'text-font': ['Noto Sans Italic'],
+        'text-letter-spacing': 0.1,
+        'text-max-width': 9,
+        'text-size': ['interpolate', ['linear'], ['zoom'], 8, 9, 12, 10],
+        'text-transform': 'uppercase'
+      },
+      paint: { 'text-color': '#333', 'text-halo-blur': 1, 'text-halo-color': '#fff', 'text-halo-width': 1 }
+    };
+    layer.metadata[FIELDS_KEY] = original.fields.slice();
+    return [layer];
+  }
+
   /**
    * Place the extra layers just below the place labels. MapLibre gives the
    * topmost layer first claim on screen space, so appending them on top would
@@ -623,7 +661,10 @@
       layer.metadata[FIELDS_KEY] = original.fields.slice();
       return layer;
     });
-    if (opts.extras) out.layers = insertBelowPlaces(out.layers, extraLayers(out, opts));
+    if (opts.extras) {
+      out.sources = Object.assign({}, out.sources);
+      out.layers = insertBelowPlaces(out.layers, extraLayers(out, opts).concat(landmarkLayers(out, opts)));
+    }
     return out;
   }
 

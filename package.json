@@ -1,7 +1,7 @@
 {
   "name": "mapofamerica",
   "version": "1.0.0",
-  "description": "A full-screen map where everything is named America. Except Epstein.",
+  "description": "A full-screen map where everything is named America.",
   "author": "Ryan Tenney",
   "private": true,
   "engines": {

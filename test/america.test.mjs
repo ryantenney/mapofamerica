@@ -370,7 +370,7 @@ test('legacy token strings and function objects are handled', () => {
 
 test('adds park, mountain and airfield labels below the place labels', () => {
   const ids = america.layers.map((l) => l.id);
-  const extras = ['america_park_label', 'america_mountain_peak_label', 'america_mountain_line_label', 'america_aerodrome_label'];
+  const extras = ['america_park_label', 'america_mountain_peak_label', 'america_mountain_line_label', 'america_aerodrome_label', 'america_landmark_label'];
   assert.deepEqual(extraLayers.map((l) => l.id), extras);
   const firstPlace = ids.indexOf('label_other');
   for (const id of extras) {
@@ -378,8 +378,9 @@ test('adds park, mountain and airfield labels below the place labels', () => {
   }
   const layers = byId(america);
   for (const l of extraLayers) {
-    assert.equal(l.source, 'openmaptiles');
-    assert.deepEqual(l.metadata['america:fields'], ['name_en', 'name']);
+    const landmark = l.id === 'america_landmark_label';
+    assert.equal(l.source, landmark ? 'america_landmarks' : 'openmaptiles');
+    assert.deepEqual(l.metadata['america:fields'], landmark ? ['name'] : ['name_en', 'name']);
     if (l.layout['icon-image']) assert.ok(sprite[l.layout['icon-image']], `${l.layout['icon-image']} is in the sprite`);
     assert.equal(text(l, { name: 'Somewhere' }), 'America');
     assert.equal(text(l, { name: 'Taylor Field' }), 'America Field');
@@ -402,6 +403,25 @@ test('adds park, mountain and airfield labels below the place labels', () => {
 
   assert.equal(America.americanize(liberty, { extras: false }).layers.length, liberty.layers.length);
   assert.equal(America.americanize(america).layers.length, america.layers.length, 'extras are not added twice');
+});
+
+test('a landmark the tiles lack gets its own point, and keeps its name', () => {
+  const source = america.sources.america_landmarks;
+  assert.equal(source.type, 'geojson');
+  assert.deepEqual(source.data.features.map((f) => f.properties.name), ['Epstein Island']);
+  assert.deepEqual(source.data.features[0].geometry.coordinates, [-64.8262, 18.3004]);
+  assert.equal(liberty.sources.america_landmarks, undefined, 'the input style is untouched');
+
+  const layer = byId(america).america_landmark_label;
+  assert.equal(text(layer, source.data.features[0].properties), 'Epstein Island');
+  assert.equal(America.labelFor(source.data.features[0].properties, America.labelFields(america).america_landmark_label), 'America Island');
+  assert.ok(America.isKept(source.data.features[0].properties), 'the popup treats it as kept');
+
+  const nothingKept = America.americanize(liberty, { keep: [] });
+  assert.equal(text(byId(nothingKept).america_landmark_label, { name: 'Epstein Island' }), 'America Island');
+  const none = America.americanize(liberty, { landmarks: [] });
+  assert.equal(none.sources.america_landmarks, undefined);
+  assert.equal(byId(none).america_landmark_label, undefined);
 });
 
 test('state names show from zoom 3 to 10 instead of 5 to 8', () => {
